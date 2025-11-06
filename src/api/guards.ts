@@ -1,0 +1,409 @@
+import { Guard, CreateGuardRequest, UpdateGuardRequest, GuardFilters, PaginatedResponse } from "../types";
+
+// ============================================
+// MOCK DATA
+// ============================================
+
+const mockGuards: Guard[] = [
+  {
+    id: "1",
+    fullName: "Сергеев Иван Петрович",
+    iin: "850620301234",
+    birthDate: "20.06.1985",
+    phone: "+7 727 111 2222",
+    email: "sergeev@kzsecurity.kz",
+    agencyId: "1",
+    agencyName: "ТОО «Казахстан Секьюрити»",
+    branchId: "1",
+    branchName: "Алматы - Центральный офис",
+    checkpointId: "1",
+    checkpointName: "КПП-1 (Главный въезд)",
+    shiftType: "day",
+    shiftStart: "08:00",
+    shiftEnd: "20:00",
+    workDays: ["ПН", "ВТ", "СР", "ЧТ", "ПТ"],
+    hireDate: "15.01.2024",
+    status: "active",
+    loginEmail: "sergeev.guard@kfp.kz",
+    visitsCount: 245,
+    lastActivity: "04.11.2024 12:30",
+  },
+  {
+    id: "2",
+    fullName: "Абдуллаев Марат Саматович",
+    iin: "920315401567",
+    birthDate: "15.03.1992",
+    phone: "+7 727 222 3333",
+    email: "abdullaev@kzsecurity.kz",
+    agencyId: "1",
+    agencyName: "ТОО «Казахстан Секьюрити»",
+    branchId: "1",
+    branchName: "Алматы - Центральный офис",
+    checkpointId: "2",
+    checkpointName: "КПП-2 (Грузовой въезд)",
+    shiftType: "day",
+    shiftStart: "06:00",
+    shiftEnd: "18:00",
+    workDays: ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ"],
+    hireDate: "15.01.2024",
+    status: "active",
+    loginEmail: "abdullaev.guard@kfp.kz",
+    visitsCount: 178,
+    lastActivity: "04.11.2024 08:45",
+  },
+  {
+    id: "3",
+    fullName: "Турсунов Бахтияр Нурланович",
+    iin: "880910501890",
+    birthDate: "10.09.1988",
+    phone: "+7 727 333 4444",
+    agencyId: "1",
+    agencyName: "ТОО «Казахстан Секьюрити»",
+    branchId: "1",
+    branchName: "Алматы - Центральный офис",
+    checkpointId: "4",
+    checkpointName: "КПП-4 (Универсальный)",
+    shiftType: "night",
+    shiftStart: "20:00",
+    shiftEnd: "08:00",
+    workDays: ["ПН", "ВТ", "СР", "ЧТ", "ПТ"],
+    hireDate: "20.01.2024",
+    status: "active",
+    loginEmail: "tursunov.guard@kfp.kz",
+    visitsCount: 134,
+    lastActivity: "04.11.2024 11:45",
+  },
+  {
+    id: "4",
+    fullName: "Жумагулов Ерлан Асхатович",
+    iin: "950203601234",
+    birthDate: "03.02.1995",
+    phone: "+7 727 444 5555",
+    email: "zhumagulov@kzsecurity.kz",
+    agencyId: "1",
+    agencyName: "ТОО «Казахстан Секьюрити»",
+    branchId: "1",
+    branchName: "Алматы - Центральный офис",
+    checkpointId: "3",
+    checkpointName: "КПП-3 (Выезд)",
+    shiftType: "day",
+    shiftStart: "08:00",
+    shiftEnd: "20:00",
+    workDays: ["СБ", "ВС"],
+    hireDate: "20.01.2024",
+    status: "active",
+    loginEmail: "zhumagulov.guard@kfp.kz",
+    visitsCount: 89,
+    lastActivity: "03.11.2024 19:45",
+  },
+  {
+    id: "5",
+    fullName: "Петров Александр Иванович",
+    iin: "870825302345",
+    birthDate: "25.08.1987",
+    phone: "+7 717 555 6666",
+    agencyId: "1",
+    agencyName: "ТОО «Казахстан Секьюрити»",
+    branchId: "2",
+    branchName: "Астана - Северный",
+    checkpointId: "5",
+    checkpointName: "КПП-1 (Главный)",
+    shiftType: "day",
+    shiftStart: "08:00",
+    shiftEnd: "20:00",
+    workDays: ["ПН", "ВТ", "СР", "ЧТ", "ПТ"],
+    hireDate: "20.02.2024",
+    status: "active",
+    loginEmail: "petrov.guard@kfp.kz",
+    visitsCount: 156,
+    lastActivity: "04.11.2024 10:20",
+  },
+  {
+    id: "6",
+    fullName: "Каримов Азамат Ерланович",
+    iin: "930512401456",
+    birthDate: "12.05.1993",
+    phone: "+7 717 666 7777",
+    email: "karimov@kzsecurity.kz",
+    agencyId: "1",
+    agencyName: "ТОО «Казахстан Секьюрити»",
+    branchId: "2",
+    branchName: "Астана - Северный",
+    checkpointId: "6",
+    checkpointName: "КПП-2 (Грузовой)",
+    shiftType: "day",
+    shiftStart: "06:00",
+    shiftEnd: "18:00",
+    workDays: ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ"],
+    hireDate: "20.02.2024",
+    status: "vacation",
+    loginEmail: "karimov.guard@kfp.kz",
+    visitsCount: 98,
+    lastActivity: "28.10.2024 17:30",
+  },
+  {
+    id: "7",
+    fullName: "Ким Сергей Викторович",
+    iin: "900914501678",
+    birthDate: "14.09.1990",
+    phone: "+7 725 777 8888",
+    agencyId: "2",
+    agencyName: "ТОО «Альфа-Охрана»",
+    branchId: "3",
+    branchName: "Шымкент - Южный филиал",
+    checkpointId: "7",
+    checkpointName: "КПП-1",
+    shiftType: "day",
+    shiftStart: "08:00",
+    shiftEnd: "20:00",
+    workDays: ["ПН", "ВТ", "СР", "ЧТ", "ПТ"],
+    hireDate: "10.03.2024",
+    status: "active",
+    loginEmail: "kim.guard@kfp.kz",
+    visitsCount: 112,
+    lastActivity: "04.11.2024 07:30",
+  },
+  {
+    id: "8",
+    fullName: "Нурланов Бауыржан Серикович",
+    iin: "880620601890",
+    birthDate: "20.06.1988",
+    phone: "+7 725 888 9999",
+    email: "nurlanov@alfaguard.kz",
+    agencyId: "2",
+    agencyName: "ТОО «Альфа-Охрана»",
+    branchId: "3",
+    branchName: "Шымкент - Южный филиал",
+    checkpointId: "7",
+    checkpointName: "КПП-1",
+    shiftType: "night",
+    shiftStart: "20:00",
+    shiftEnd: "08:00",
+    workDays: ["ПН", "ВТ", "СР", "ЧТ", "ПТ"],
+    hireDate: "10.03.2024",
+    status: "active",
+    loginEmail: "nurlanov.guard@kfp.kz",
+    visitsCount: 67,
+    lastActivity: "03.11.2024 23:15",
+  },
+  {
+    id: "9",
+    fullName: "Смирнов Владимир Андреевич",
+    iin: "920203702345",
+    birthDate: "03.02.1992",
+    phone: "+7 721 999 0000",
+    agencyId: "3",
+    agencyName: "АО «БезопасностьПлюс»",
+    branchId: "4",
+    branchName: "Караганда - Промышленный",
+    checkpointId: "8",
+    checkpointName: "КПП-1",
+    shiftType: "day",
+    shiftStart: "08:00",
+    shiftEnd: "20:00",
+    workDays: ["ПН", "СР", "ПТ"],
+    hireDate: "05.04.2024",
+    status: "inactive",
+    loginEmail: "smirnov.guard@kfp.kz",
+    visitsCount: 0,
+    lastActivity: "15.10.2024 15:00",
+  },
+  {
+    id: "10",
+    fullName: "Жанабаев Ержан Болатович",
+    iin: "850512301456",
+    birthDate: "12.05.1985",
+    phone: "+7 713 101 2020",
+    email: "zhanabayev@securityplus.kz",
+    agencyId: "3",
+    agencyName: "АО «БезопасностьПлюс»",
+    branchId: "5",
+    branchName: "Актобе - Западный",
+    checkpointId: "10",
+    checkpointName: "КПП-2",
+    shiftType: "day",
+    shiftStart: "06:00",
+    shiftEnd: "18:00",
+    workDays: ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ"],
+    hireDate: "25.04.2024",
+    status: "active",
+    loginEmail: "zhanabayev.guard@kfp.kz",
+    visitsCount: 78,
+    lastActivity: "04.11.2024 11:00",
+  },
+];
+
+// ============================================
+// API FUNCTIONS (MOCK IMPLEMENTATION)
+// ============================================
+
+/**
+ * Получить список охранников с фильтрами и пагинацией
+ */
+export async function getGuards(
+  filters?: GuardFilters,
+  page: number = 1,
+  pageSize: number = 20
+): Promise<PaginatedResponse<Guard>> {
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  let filteredGuards = [...mockGuards];
+
+  // Применяем фильтры
+  if (filters) {
+    if (filters.search) {
+      const searchLower = filters.search.toLowerCase();
+      filteredGuards = filteredGuards.filter(
+        (guard) =>
+          guard.fullName.toLowerCase().includes(searchLower) ||
+          guard.iin.includes(searchLower) ||
+          guard.phone.includes(searchLower) ||
+          guard.email?.toLowerCase().includes(searchLower)
+      );
+    }
+
+    if (filters.agencyId) {
+      filteredGuards = filteredGuards.filter(
+        (guard) => guard.agencyId === filters.agencyId
+      );
+    }
+
+    if (filters.branchId) {
+      filteredGuards = filteredGuards.filter(
+        (guard) => guard.branchId === filters.branchId
+      );
+    }
+
+    if (filters.checkpointId) {
+      filteredGuards = filteredGuards.filter(
+        (guard) => guard.checkpointId === filters.checkpointId
+      );
+    }
+
+    if (filters.status && filters.status !== "all") {
+      filteredGuards = filteredGuards.filter(
+        (guard) => guard.status === filters.status
+      );
+    }
+
+    if (filters.shiftType && filters.shiftType !== "all") {
+      filteredGuards = filteredGuards.filter(
+        (guard) => guard.shiftType === filters.shiftType
+      );
+    }
+  }
+
+  // Пагинация
+  const total = filteredGuards.length;
+  const totalPages = Math.ceil(total / pageSize);
+  const start = (page - 1) * pageSize;
+  const end = start + pageSize;
+  const items = filteredGuards.slice(start, end);
+
+  return {
+    items,
+    total,
+    page,
+    pageSize,
+    totalPages,
+  };
+}
+
+/**
+ * Получить охранника по ID
+ */
+export async function getGuardById(id: string): Promise<Guard | null> {
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  return mockGuards.find((guard) => guard.id === id) || null;
+}
+
+/**
+ * Создать нового охранника
+ */
+export async function createGuard(data: CreateGuardRequest): Promise<Guard> {
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
+  const newGuard: Guard = {
+    id: String(mockGuards.length + 1),
+    ...data,
+    agencyName: "Название агентства",
+    branchName: "Название филиала",
+    checkpointName: "Название КПП",
+    status: "active",
+    visitsCount: 0,
+    hireDate: new Date().toLocaleDateString("ru-RU"),
+  };
+
+  mockGuards.push(newGuard);
+  return newGuard;
+}
+
+/**
+ * Обновить охранника
+ */
+export async function updateGuard(
+  id: string,
+  data: UpdateGuardRequest
+): Promise<Guard> {
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
+  const index = mockGuards.findIndex((guard) => guard.id === id);
+  if (index === -1) {
+    throw new Error("Guard not found");
+  }
+
+  mockGuards[index] = {
+    ...mockGuards[index],
+    ...data,
+  };
+
+  return mockGuards[index];
+}
+
+/**
+ * Удалить охранника
+ */
+export async function deleteGuard(id: string): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  const index = mockGuards.findIndex((guard) => guard.id === id);
+  if (index !== -1) {
+    mockGuards.splice(index, 1);
+  }
+}
+
+/**
+ * Сбросить пароль охранника
+ */
+export async function resetGuardPassword(id: string): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  // В реальном API здесь будет отправка нового пароля на email
+}
+
+/**
+ * Экспорт охранников в Excel
+ */
+export async function exportGuards(filters?: GuardFilters): Promise<string> {
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  return "/api/exports/guards-2024-11-04.xlsx";
+}
+
+/**
+ * Получить статистику по охраннику
+ */
+export async function getGuardStats(id: string) {
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  const guard = mockGuards.find((g) => g.id === id);
+  if (!guard) return null;
+
+  return {
+    visitsToday: 12,
+    visitsThisWeek: 45,
+    visitsThisMonth: guard.visitsCount,
+    avgVisitsPerDay: 8.5,
+    lastShiftStart: "04.11.2024 08:00",
+    lastShiftEnd: "04.11.2024 20:00",
+    workDaysThisMonth: 18,
+  };
+}
