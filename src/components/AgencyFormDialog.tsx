@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form@7.55.0";
 import {
   Dialog,
@@ -20,9 +20,12 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Checkbox } from "./ui/checkbox";
-import { Agency } from "./AgenciesList";
+import { Agency, Branch } from "../types";
 import { Card } from "./ui/card";
 import { ScrollArea } from "./ui/scroll-area";
+import { usePersistentCollection } from "../hooks/usePersistentCollection";
+import { STORAGE_KEYS } from "../utils/storage";
+import { initialBranches } from "../data/initialData";
 
 interface AgencyFormDialogProps {
   open: boolean;
@@ -45,21 +48,21 @@ interface FormData {
   status: "active" | "inactive";
 }
 
-// Mock branches data
-const mockBranches = [
-  { id: "1", name: "Алматы - Центральный офис" },
-  { id: "2", name: "Астана - Северный" },
-  { id: "3", name: "Шымкент - Южный филиал" },
-  { id: "4", name: "Караганда - Промышленный" },
-  { id: "5", name: "Актобе - Западный" },
-];
-
 export function AgencyFormDialog({
   open,
   onOpenChange,
   agency,
   onSave,
 }: AgencyFormDialogProps) {
+  const [storedBranches] = usePersistentCollection<Branch>(
+    STORAGE_KEYS.branches,
+    initialBranches
+  );
+  const branchOptions = useMemo(
+    () => storedBranches.map((branch) => ({ id: branch.id, name: branch.name })),
+    [storedBranches]
+  );
+
   const {
     register,
     handleSubmit,
@@ -115,9 +118,9 @@ export function AgencyFormDialog({
       ...data,
       contractStart: data.contractStart.split("-").reverse().join("."),
       contractEnd: data.contractEnd.split("-").reverse().join("."),
-      branchNames: mockBranches
-        .filter((b) => data.branches.includes(b.id))
-        .map((b) => b.name),
+      branchNames: branchOptions
+        .filter((branch) => data.branches.includes(branch.id))
+        .map((branch) => branch.name),
     };
     onSave(formattedData);
   };
@@ -293,7 +296,7 @@ export function AgencyFormDialog({
               </div>
               <Card className="p-4">
                 <div className="space-y-3">
-                  {mockBranches.map((branch) => (
+                  {branchOptions.map((branch) => (
                     <div key={branch.id} className="flex items-center space-x-3">
                       <Checkbox
                         id={`branch-${branch.id}`}

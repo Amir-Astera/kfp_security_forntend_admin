@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -31,6 +31,7 @@ import {
   CheckCircle,
   KeyRound,
   BarChart3,
+  Trash2,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -40,102 +41,72 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { Badge } from "./ui/badge";
-
-export interface Agency {
-  id: string;
-  name: string;
-  bin: string;
-  director: string;
-  phone: string;
-  email: string;
-  legalAddress: string;
-  branches: string[]; // Array of branch IDs
-  branchNames: string[]; // Array of branch names for display
-  contractStart: string;
-  contractEnd: string;
-  loginEmail: string;
-  status: "active" | "inactive";
-  createdAt: string;
-  guardsCount: number;
-}
-
-const mockAgencies: Agency[] = [
-  {
-    id: "1",
-    name: "ТОО «Казахстан Секьюрити»",
-    bin: "123456789012",
-    director: "Иванов Петр Сергеевич",
-    phone: "+7 727 250 1000",
-    email: "info@kzsecurity.kz",
-    legalAddress: "г. Алматы, ул. Абая, 120",
-    branches: ["1", "2"],
-    branchNames: ["Алматы - Центральный офис", "Астана - Северный"],
-    contractStart: "01.01.2025",
-    contractEnd: "31.12.2025",
-    loginEmail: "kzsecurity@kfp.kz",
-    status: "active",
-    createdAt: "15.12.2023",
-    guardsCount: 45,
-  },
-  {
-    id: "2",
-    name: "ТОО «Альфа-Охрана»",
-    bin: "987654321098",
-    director: "Смирнов Алексей Иванович",
-    phone: "+7 727 250 2000",
-    email: "info@alfaguard.kz",
-    legalAddress: "г. Алматы, пр. Достык, 45",
-    branches: ["3"],
-    branchNames: ["Шымкент - Южный филиал"],
-    contractStart: "15.02.2025",
-    contractEnd: "14.02.2026",
-    loginEmail: "alfaguard@kfp.kz",
-    status: "active",
-    createdAt: "01.02.2025",
-    guardsCount: 28,
-  },
-  {
-    id: "3",
-    name: "АО «БезопасностьПлюс»",
-    bin: "456789012345",
-    director: "Касымов Нурлан Бекович",
-    phone: "+7 721 056 8000",
-    email: "office@securityplus.kz",
-    legalAddress: "г. Караганда, ул. Ермекова, 80",
-    branches: ["4", "5"],
-    branchNames: ["Караганда - Промышленный", "Актобе - Западный"],
-    contractStart: "01.03.2025",
-    contractEnd: "28.02.2026",
-    loginEmail: "securityplus@kfp.kz",
-    status: "active",
-    createdAt: "15.02.2025",
-    guardsCount: 35,
-  },
-  {
-    id: "4",
-    name: "ТОО «ОхранаСервис»",
-    bin: "111222333444",
-    director: "Абдуллаев Марат Саматович",
-    phone: "+7 727 250 3000",
-    email: "info@guardservice.kz",
-    legalAddress: "г. Алматы, ул. Жандосова, 23",
-    branches: ["1"],
-    branchNames: ["Алматы - Центральный офис"],
-    contractStart: "10.01.2025",
-    contractEnd: "09.01.2026",
-    loginEmail: "guardservice@kfp.kz",
-    status: "inactive",
-    createdAt: "28.12.2023",
-    guardsCount: 0,
-  },
-];
+import { Agency, Branch, Guard } from "../types";
+import { usePersistentCollection } from "../hooks/usePersistentCollection";
+import { STORAGE_KEYS } from "../utils/storage";
+import {
+  initialAgencies,
+  initialBranches,
+  initialGuards,
+} from "../data/initialData";
+import { generateId } from "../utils/id";
 
 export function AgenciesList() {
-  const [agencies, setAgencies] = useState<Agency[]>(mockAgencies);
+  const [agencies, setAgencies] = usePersistentCollection<Agency>(
+    STORAGE_KEYS.agencies,
+    initialAgencies
+  );
+  const [branches] = usePersistentCollection<Branch>(
+    STORAGE_KEYS.branches,
+    initialBranches
+  );
+  const [guards] = usePersistentCollection<Guard>(
+    STORAGE_KEYS.guards,
+    initialGuards
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingAgency, setEditingAgency] = useState<Agency | null>(null);
+
+  const branchNameMap = useMemo(
+    () => new Map(branches.map((branch) => [branch.id, branch.name])),
+    [branches]
+  );
+
+  useEffect(() => {
+    const guardCounts = guards.reduce<Record<string, number>>((acc, guard) => {
+      acc[guard.agencyId] = (acc[guard.agencyId] || 0) + 1;
+      return acc;
+    }, {});
+
+    setAgencies((prev) => {
+      let changed = false;
+      const updated = prev.map((agency) => {
+        const guardCount = guardCounts[agency.id] || 0;
+        const branchNames = agency.branches
+          .map((id) => branchNameMap.get(id))
+          .filter((name): name is string => Boolean(name));
+
+        const branchNamesChanged =
+          branchNames.length !== agency.branchNames.length ||
+          branchNames.some((name, index) => name !== agency.branchNames[index]);
+
+        if (agency.guardsCount !== guardCount || branchNamesChanged) {
+          changed = true;
+          return {
+            ...agency,
+            guardsCount: guardCount,
+            branchNames,
+          };
+        }
+
+        return agency;
+      });
+
+      return changed ? updated : prev;
+    });
+  }, [branchNameMap, guards, setAgencies]);
 
   // Сортировка
   const { sortField, sortDirection, handleSort, sortData } = useSorting();
@@ -155,6 +126,11 @@ export function AgenciesList() {
   });
 
   const sortedAgencies = sortData(filteredAgencies);
+  const activeAgenciesCount = useMemo(
+    () => agencies.filter((agency) => agency.status === "active").length,
+    [agencies]
+  );
+  const totalGuardsCount = useMemo(() => guards.length, [guards]);
 
   const handleCreate = () => {
     setEditingAgency(null);
@@ -168,30 +144,61 @@ export function AgenciesList() {
 
   const handleSave = (data: Partial<Agency>) => {
     if (editingAgency) {
-      setAgencies(
-        agencies.map((a) =>
-          a.id === editingAgency.id ? { ...a, ...data } : a
-        )
+      setAgencies((prev) =>
+        prev.map((agency) => {
+          if (agency.id !== editingAgency.id) {
+            return agency;
+          }
+
+          const updatedBranches = data.branches ?? agency.branches;
+          const updatedBranchNames = updatedBranches
+            .map((id) => branchNameMap.get(id))
+            .filter((name): name is string => Boolean(name));
+
+          return {
+            ...agency,
+            ...data,
+            branches: updatedBranches,
+            branchNames: updatedBranchNames,
+          };
+        })
       );
     } else {
+      const branchIds = data.branches ?? [];
+      const branchNames = branchIds
+        .map((id) => branchNameMap.get(id))
+        .filter((name): name is string => Boolean(name));
+
       const newAgency: Agency = {
-        id: String(agencies.length + 1),
-        ...data as Agency,
+        id: generateId("agency"),
+        name: data.name ?? "",
+        bin: data.bin ?? "",
+        director: data.director ?? "",
+        phone: data.phone ?? "",
+        email: data.email ?? "",
+        legalAddress: data.legalAddress ?? "",
+        branches: branchIds,
+        branchNames,
+        contractStart: data.contractStart ?? new Date().toLocaleDateString("ru-RU"),
+        contractEnd: data.contractEnd ?? new Date().toLocaleDateString("ru-RU"),
+        loginEmail: data.loginEmail ?? "",
+        status: data.status ?? "active",
         createdAt: new Date().toLocaleDateString("ru-RU"),
         guardsCount: 0,
       };
-      setAgencies([...agencies, newAgency]);
+
+      setAgencies((prev) => [...prev, newAgency]);
     }
     setIsFormOpen(false);
     setEditingAgency(null);
   };
 
   const handleToggleStatus = (agency: Agency) => {
-    setAgencies(
-      agencies.map((a) =>
-        a.id === agency.id
-          ? { ...a, status: a.status === "active" ? "inactive" : "active" }
-          : a
+    setAgencies((prev) =>
+      prev.map((item) =>
+        item.id === agency.id
+          ? { ...item, status: item.status === "active" ? "inactive" : "active" }
+          : item
       )
     );
   };
@@ -204,6 +211,16 @@ export function AgenciesList() {
     alert(`Статистика для ${agency.name}:\n\nОхранников: ${agency.guardsCount}\nФилиалов: ${agency.branches.length}`);
   };
 
+  const handleDelete = (agency: Agency) => {
+    if (
+      window.confirm(
+        `Удалить агентство «${agency.name}»? Связанные охранники останутся в системе.`
+      )
+    ) {
+      setAgencies((prev) => prev.filter((item) => item.id !== agency.id));
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -211,9 +228,8 @@ export function AgenciesList() {
         <div>
           <h2 className="text-foreground mb-1">Управление агентствами</h2>
           <p className="text-muted-foreground">
-            Всего агентств: {agencies.length} • Активных:{" "}
-            {agencies.filter((a) => a.status === "active").length} • Охранников:{" "}
-            {agencies.reduce((sum, a) => sum + a.guardsCount, 0)}
+            Всего агентств: {agencies.length} • Активных: {activeAgenciesCount} •
+            Охранников: {totalGuardsCount}
           </p>
         </div>
         <div className="flex gap-3">
@@ -405,6 +421,14 @@ export function AgenciesList() {
                                 Активировать
                               </>
                             )}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => handleDelete(agency)}
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Удалить
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>

@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { Branch } from "./BranchesList";
+import { Branch } from "../types";
 
 interface BranchFormDialogProps {
   open: boolean;
