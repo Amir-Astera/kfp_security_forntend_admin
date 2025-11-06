@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -21,122 +21,34 @@ import {
 } from "./ui/select";
 import { StatusBadge } from "./StatusBadge";
 import { CheckpointFormDialog } from "./CheckpointFormDialog";
-import { 
-  Plus, 
-  Search, 
-  Download, 
+import {
+  Plus,
+  Search,
+  Download,
   MoreVertical,
   Edit,
   Ban,
   CheckCircle,
-  Copy
+  Copy,
+  Trash2,
 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { Badge } from "./ui/badge";
-
-export interface Checkpoint {
-  id: string;
-  name: string;
-  branchId: string;
-  branchName: string;
-  type: "entry" | "exit" | "universal";
-  description?: string;
-  status: "active" | "inactive";
-  createdAt: string;
-  guardsCount: number;
-}
-
-const mockCheckpoints: Checkpoint[] = [
-  {
-    id: "1",
-    name: "КПП-1 (Главный въезд)",
-    branchId: "1",
-    branchName: "Алматы - Центральный офис",
-    type: "entry",
-    description: "Главные ворота для легкового транспорта",
-    status: "active",
-    createdAt: "15.01.2025",
-    guardsCount: 2,
-  },
-  {
-    id: "2",
-    name: "КПП-2 (Грузовой въезд)",
-    branchId: "1",
-    branchName: "Алматы - Центральный офис",
-    type: "entry",
-    description: "Для грузового транспорта и поставок",
-    status: "active",
-    createdAt: "15.01.2025",
-    guardsCount: 2,
-  },
-  {
-    id: "3",
-    name: "КПП-3 (Выезд)",
-    branchId: "1",
-    branchName: "Алматы - Центральный офис",
-    type: "exit",
-    description: "Основной выезд",
-    status: "active",
-    createdAt: "15.01.2025",
-    guardsCount: 1,
-  },
-  {
-    id: "4",
-    name: "КПП-4 (Универсальный)",
-    branchId: "1",
-    branchName: "Алматы - Центральный офис",
-    type: "universal",
-    description: "Въезд/выезд для сотрудников",
-    status: "active",
-    createdAt: "20.01.2025",
-    guardsCount: 2,
-  },
-  {
-    id: "5",
-    name: "КПП-1 (Главный)",
-    branchId: "2",
-    branchName: "Астана - Северный",
-    type: "universal",
-    status: "active",
-    createdAt: "20.02.2025",
-    guardsCount: 2,
-  },
-  {
-    id: "6",
-    name: "КПП-2 (Грузовой)",
-    branchId: "2",
-    branchName: "Астана - Северный",
-    type: "entry",
-    status: "active",
-    createdAt: "20.02.2025",
-    guardsCount: 1,
-  },
-  {
-    id: "7",
-    name: "КПП-1",
-    branchId: "3",
-    branchName: "Шымкент - Южный филиал",
-    type: "universal",
-    status: "active",
-    createdAt: "10.03.2025",
-    guardsCount: 2,
-  },
-  {
-    id: "8",
-    name: "КПП-2",
-    branchId: "3",
-    branchName: "Шымкент - Южный филиал",
-    type: "entry",
-    status: "inactive",
-    createdAt: "10.03.2025",
-    guardsCount: 0,
-  },
-];
+import { Checkpoint, Branch, Guard } from "../types";
+import { usePersistentCollection } from "../hooks/usePersistentCollection";
+import { STORAGE_KEYS } from "../utils/storage";
+import {
+  initialCheckpoints,
+  initialBranches,
+  initialGuards,
+} from "../data/initialData";
+import { generateId } from "../utils/id";
 
 const typeLabels = {
   entry: "Въезд",
@@ -151,7 +63,18 @@ const typeColors = {
 };
 
 export function CheckpointsList() {
-  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>(mockCheckpoints);
+  const [checkpoints, setCheckpoints] = usePersistentCollection<Checkpoint>(
+    STORAGE_KEYS.checkpoints,
+    initialCheckpoints
+  );
+  const [branches] = usePersistentCollection<Branch>(
+    STORAGE_KEYS.branches,
+    initialBranches
+  );
+  const [guards] = usePersistentCollection<Guard>(
+    STORAGE_KEYS.guards,
+    initialGuards
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [branchFilter, setBranchFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
@@ -162,28 +85,79 @@ export function CheckpointsList() {
   // Сортировка
   const { sortField, sortDirection, handleSort, sortData } = useSorting();
 
-  const branches = Array.from(
-    new Map(checkpoints.map((c) => [c.branchId, { id: c.branchId, name: c.branchName }])).values()
+  const branchMap = useMemo(
+    () => new Map(branches.map((branch) => [branch.id, branch.name])),
+    [branches]
   );
 
-  const filteredCheckpoints = checkpoints.filter((checkpoint) => {
-    const matchesSearch =
-      checkpoint.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      checkpoint.branchName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      checkpoint.description?.toLowerCase().includes(searchQuery.toLowerCase());
+  const branchOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    branches.forEach((branch) => map.set(branch.id, branch.name));
+    checkpoints.forEach((checkpoint) => {
+      if (!map.has(checkpoint.branchId)) {
+        map.set(checkpoint.branchId, checkpoint.branchName);
+      }
+    });
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [branches, checkpoints]);
 
-    const matchesBranch =
-      branchFilter === "all" || checkpoint.branchId === branchFilter;
+  const filteredCheckpoints = useMemo(() => {
+    return checkpoints.filter((checkpoint) => {
+      const matchesSearch =
+        checkpoint.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        checkpoint.branchName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        checkpoint.description?.toLowerCase().includes(searchQuery.toLowerCase());
 
-    const matchesType = typeFilter === "all" || checkpoint.type === typeFilter;
+      const matchesBranch =
+        branchFilter === "all" || checkpoint.branchId === branchFilter;
 
-    const matchesStatus =
-      statusFilter === "all" || checkpoint.status === statusFilter;
+      const matchesType = typeFilter === "all" || checkpoint.type === typeFilter;
 
-    return matchesSearch && matchesBranch && matchesType && matchesStatus;
-  });
+      const matchesStatus =
+        statusFilter === "all" || checkpoint.status === statusFilter;
+
+      return matchesSearch && matchesBranch && matchesType && matchesStatus;
+    });
+  }, [branchFilter, checkpoints, searchQuery, statusFilter, typeFilter]);
 
   const sortedCheckpoints = sortData(filteredCheckpoints);
+
+  useEffect(() => {
+    setCheckpoints((prev) => {
+      let changed = false;
+      const updated = prev.map((checkpoint) => {
+        const branchName = branchMap.get(checkpoint.branchId);
+        if (branchName && branchName !== checkpoint.branchName) {
+          changed = true;
+          return { ...checkpoint, branchName };
+        }
+        return checkpoint;
+      });
+
+      return changed ? updated : prev;
+    });
+  }, [branchMap, setCheckpoints]);
+
+  useEffect(() => {
+    const guardCounts = guards.reduce<Record<string, number>>((acc, guard) => {
+      acc[guard.checkpointId] = (acc[guard.checkpointId] || 0) + 1;
+      return acc;
+    }, {});
+
+    setCheckpoints((prev) => {
+      let changed = false;
+      const updated = prev.map((checkpoint) => {
+        const count = guardCounts[checkpoint.id] || 0;
+        if (checkpoint.guardsCount !== count) {
+          changed = true;
+          return { ...checkpoint, guardsCount: count };
+        }
+        return checkpoint;
+      });
+
+      return changed ? updated : prev;
+    });
+  }, [guards, setCheckpoints]);
 
   const handleCreate = () => {
     setEditingCheckpoint(null);
@@ -197,30 +171,48 @@ export function CheckpointsList() {
 
   const handleSave = (data: Partial<Checkpoint>) => {
     if (editingCheckpoint) {
-      setCheckpoints(
-        checkpoints.map((c) =>
-          c.id === editingCheckpoint.id ? { ...c, ...data } : c
-        )
+      setCheckpoints((prev) =>
+        prev.map((checkpoint) => {
+          if (checkpoint.id !== editingCheckpoint.id) {
+            return checkpoint;
+          }
+
+          const branchId = data.branchId ?? checkpoint.branchId;
+          const branchName = branchMap.get(branchId) ?? checkpoint.branchName;
+
+          return {
+            ...checkpoint,
+            ...data,
+            branchId,
+            branchName,
+          };
+        })
       );
     } else {
+      const branchId = data.branchId ?? "";
       const newCheckpoint: Checkpoint = {
-        id: String(checkpoints.length + 1),
-        ...data as Checkpoint,
+        id: generateId("checkpoint"),
+        name: data.name ?? "",
+        branchId,
+        branchName: branchMap.get(branchId) ?? data.branchName ?? "",
+        type: data.type ?? "universal",
+        description: data.description,
+        status: data.status ?? "active",
         createdAt: new Date().toLocaleDateString("ru-RU"),
         guardsCount: 0,
       };
-      setCheckpoints([...checkpoints, newCheckpoint]);
+      setCheckpoints((prev) => [...prev, newCheckpoint]);
     }
     setIsFormOpen(false);
     setEditingCheckpoint(null);
   };
 
   const handleToggleStatus = (checkpoint: Checkpoint) => {
-    setCheckpoints(
-      checkpoints.map((c) =>
-        c.id === checkpoint.id
-          ? { ...c, status: c.status === "active" ? "inactive" : "active" }
-          : c
+    setCheckpoints((prev) =>
+      prev.map((item) =>
+        item.id === checkpoint.id
+          ? { ...item, status: item.status === "active" ? "inactive" : "active" }
+          : item
       )
     );
   };
@@ -228,12 +220,18 @@ export function CheckpointsList() {
   const handleDuplicate = (checkpoint: Checkpoint) => {
     const newCheckpoint: Checkpoint = {
       ...checkpoint,
-      id: String(checkpoints.length + 1),
+      id: generateId("checkpoint"),
       name: `${checkpoint.name} (копия)`,
       createdAt: new Date().toLocaleDateString("ru-RU"),
       guardsCount: 0,
     };
-    setCheckpoints([...checkpoints, newCheckpoint]);
+    setCheckpoints((prev) => [...prev, newCheckpoint]);
+  };
+
+  const handleDelete = (checkpoint: Checkpoint) => {
+    if (window.confirm(`Удалить КПП «${checkpoint.name}»?`)) {
+      setCheckpoints((prev) => prev.filter((item) => item.id !== checkpoint.id));
+    }
   };
 
   return (
@@ -277,7 +275,7 @@ export function CheckpointsList() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Все филиалы</SelectItem>
-              {branches.map((branch) => (
+              {branchOptions.map((branch) => (
                 <SelectItem key={branch.id} value={branch.id}>
                   {branch.name}
                 </SelectItem>
@@ -441,6 +439,14 @@ export function CheckpointsList() {
                                 Активировать
                               </>
                             )}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => handleDelete(checkpoint)}
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Удалить
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>

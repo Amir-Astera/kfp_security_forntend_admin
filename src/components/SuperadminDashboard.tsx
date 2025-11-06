@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { MetricCard } from "./MetricCard";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
@@ -46,6 +47,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
+import { usePersistentCollection } from "../hooks/usePersistentCollection";
+import { STORAGE_KEYS } from "../utils/storage";
+import {
+  initialAgencies,
+  initialBranches,
+  initialCheckpoints,
+  initialGuards,
+} from "../data/initialData";
+import { Agency, Branch, Checkpoint, Guard as GuardType } from "../types";
 
 // Mock data
 const visitsOverTimeData = [
@@ -175,6 +185,36 @@ const chartConfig = {
 };
 
 export function SuperadminDashboard() {
+  const [branches] = usePersistentCollection<Branch>(
+    STORAGE_KEYS.branches,
+    initialBranches
+  );
+  const [checkpoints] = usePersistentCollection<Checkpoint>(
+    STORAGE_KEYS.checkpoints,
+    initialCheckpoints
+  );
+  const [agencies] = usePersistentCollection<Agency>(
+    STORAGE_KEYS.agencies,
+    initialAgencies
+  );
+  const [guards] = usePersistentCollection<GuardType>(
+    STORAGE_KEYS.guards,
+    initialGuards
+  );
+
+  const activeBranchesCount = useMemo(
+    () => branches.filter((branch) => branch.status === "active").length,
+    [branches]
+  );
+  const activeAgenciesCount = useMemo(
+    () => agencies.filter((agency) => agency.status === "active").length,
+    [agencies]
+  );
+  const activeGuardsCount = useMemo(
+    () => guards.filter((guard) => guard.status === "active").length,
+    [guards]
+  );
+
   return (
     <div className="space-y-6">
       {/* Header Info */}
@@ -183,7 +223,7 @@ export function SuperadminDashboard() {
           <div>
             <h2 className="text-foreground mb-1">Агрохолдинг KFP</h2>
             <p className="text-muted-foreground">
-              35 компаний • 12 филиалов • 37 КПП • 8 охранных агентств
+              35 компаний • {branches.length} филиалов • {checkpoints.length} КПП • {agencies.length} охранных агентств
             </p>
           </div>
           <div className="text-right">
@@ -222,26 +262,26 @@ export function SuperadminDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
           title="Филиалы"
-          value="12"
-          subtitle="Активных"
+          value={branches.length.toString()}
+          subtitle={`Активных: ${activeBranchesCount}`}
           icon={Building2}
         />
         <MetricCard
           title="КПП"
-          value="37"
-          subtitle="В 12 филиалах"
+          value={checkpoints.length.toString()}
+          subtitle={`В ${branches.length} филиалах`}
           icon={MapPin}
         />
         <MetricCard
           title="Агентства"
-          value="8"
-          subtitle="Активных"
+          value={agencies.length.toString()}
+          subtitle={`Активных: ${activeAgenciesCount}`}
           icon={Shield}
         />
         <MetricCard
           title="Охранники"
-          value="145"
-          subtitle="На смене: 89"
+          value={guards.length.toString()}
+          subtitle={`На смене: ${activeGuardsCount}`}
           icon={Users}
         />
       </div>

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form@7.55.0";
 import {
   Dialog,
@@ -19,7 +19,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { Checkpoint } from "./CheckpointsList";
+import { Branch, Checkpoint } from "../types";
+import { usePersistentCollection } from "../hooks/usePersistentCollection";
+import { STORAGE_KEYS } from "../utils/storage";
+import { initialBranches } from "../data/initialData";
 
 interface CheckpointFormDialogProps {
   open: boolean;
@@ -37,21 +40,20 @@ interface FormData {
   status: "active" | "inactive";
 }
 
-// Mock branches data - in real app, fetch from API
-const mockBranches = [
-  { id: "1", name: "Алматы - Центральный офис" },
-  { id: "2", name: "Астана - Северный" },
-  { id: "3", name: "Шымкент - Южный филиал" },
-  { id: "4", name: "Караганда - Промышленный" },
-  { id: "5", name: "Актобе - Западный" },
-];
-
 export function CheckpointFormDialog({
   open,
   onOpenChange,
   checkpoint,
   onSave,
 }: CheckpointFormDialogProps) {
+  const [storedBranches] = usePersistentCollection<Branch>(
+    STORAGE_KEYS.branches,
+    initialBranches
+  );
+  const branchOptions = useMemo(
+    () => storedBranches.map((branch) => ({ id: branch.id, name: branch.name })),
+    [storedBranches]
+  );
   const {
     register,
     handleSubmit,
@@ -93,7 +95,7 @@ export function CheckpointFormDialog({
   }, [checkpoint, reset]);
 
   const onSubmit = (data: FormData) => {
-    const branch = mockBranches.find((b) => b.id === data.branchId);
+    const branch = branchOptions.find((b) => b.id === data.branchId);
     onSave({
       ...data,
       branchName: branch?.name || "",
@@ -141,7 +143,7 @@ export function CheckpointFormDialog({
                 value={branchId}
                 onValueChange={(value) => {
                   setValue("branchId", value);
-                  const branch = mockBranches.find((b) => b.id === value);
+                  const branch = branchOptions.find((b) => b.id === value);
                   if (branch) {
                     setValue("branchName", branch.name);
                   }
@@ -151,7 +153,7 @@ export function CheckpointFormDialog({
                   <SelectValue placeholder="Выберите филиал" />
                 </SelectTrigger>
                 <SelectContent>
-                  {mockBranches.map((branch) => (
+                  {branchOptions.map((branch) => (
                     <SelectItem key={branch.id} value={branch.id}>
                       {branch.name}
                     </SelectItem>

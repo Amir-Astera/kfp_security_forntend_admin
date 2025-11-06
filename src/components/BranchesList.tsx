@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -21,132 +21,107 @@ import { StatusBadge } from "./StatusBadge";
 import { BranchFormDialog } from "./BranchFormDialog";
 import { SortableTableHead } from "./SortableTableHead";
 import { useSorting } from "./hooks/useSorting";
-import { 
-  Plus, 
-  Search, 
-  Download, 
+import {
+  Plus,
+  Search,
+  Download,
   MoreVertical,
   Edit,
   Ban,
-  CheckCircle
+  CheckCircle,
+  Trash2,
 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-
-export interface Branch {
-  id: string;
-  name: string;
-  city: string;
-  region: string;
-  street: string;
-  building: string;
-  latitude?: string;
-  longitude?: string;
-  phone: string;
-  email: string;
-  status: "active" | "inactive";
-  createdAt: string;
-  checkpointsCount: number;
-}
-
-const mockBranches: Branch[] = [
-  {
-    id: "1",
-    name: "Алматы - Центральный офис",
-    city: "Алматы",
-    region: "Алматинская область",
-    street: "пр. Абая",
-    building: "150А",
-    latitude: "43.238293",
-    longitude: "76.889709",
-    phone: "+7 727 250 5000",
-    email: "almaty.central@kfp.kz",
-    status: "active",
-    createdAt: "15.01.2025",
-    checkpointsCount: 4,
-  },
-  {
-    id: "2",
-    name: "Астана - Северный",
-    city: "Астана",
-    region: "Акмолинская область",
-    street: "ул. Кабанбай батыра",
-    building: "53",
-    phone: "+7 717 295 3000",
-    email: "astana.north@kfp.kz",
-    status: "active",
-    createdAt: "20.02.2025",
-    checkpointsCount: 3,
-  },
-  {
-    id: "3",
-    name: "Шымкент - Южный филиал",
-    city: "Шымкент",
-    region: "Туркестанская область",
-    street: "пр. Тауке хана",
-    building: "28",
-    phone: "+7 725 254 2000",
-    email: "shymkent@kfp.kz",
-    status: "active",
-    createdAt: "10.03.2025",
-    checkpointsCount: 2,
-  },
-  {
-    id: "4",
-    name: "Караганда - Промышленный",
-    city: "Караганда",
-    region: "Карагандинская область",
-    street: "ул. Ермекова",
-    building: "112",
-    phone: "+7 721 056 7000",
-    email: "karaganda@kfp.kz",
-    status: "inactive",
-    createdAt: "05.04.2025",
-    checkpointsCount: 1,
-  },
-  {
-    id: "5",
-    name: "Актобе - Западный",
-    city: "Актобе",
-    region: "Актюбинская область",
-    street: "пр. Абилкайыр хана",
-    building: "67",
-    phone: "+7 713 255 4000",
-    email: "aktobe@kfp.kz",
-    status: "active",
-    createdAt: "25.04.2025",
-    checkpointsCount: 2,
-  },
-];
+import { Branch, Checkpoint, Agency } from "../types";
+import { usePersistentCollection } from "../hooks/usePersistentCollection";
+import { STORAGE_KEYS } from "../utils/storage";
+import {
+  initialBranches,
+  initialCheckpoints,
+  initialAgencies,
+} from "../data/initialData";
+import { generateId } from "../utils/id";
 
 export function BranchesList() {
-  const [branches, setBranches] = useState<Branch[]>(mockBranches);
+  const [branches, setBranches] = usePersistentCollection<Branch>(
+    STORAGE_KEYS.branches,
+    initialBranches
+  );
+  const [checkpoints, setCheckpoints] = usePersistentCollection<Checkpoint>(
+    STORAGE_KEYS.checkpoints,
+    initialCheckpoints
+  );
+  const [agencies, setAgencies] = usePersistentCollection<Agency>(
+    STORAGE_KEYS.agencies,
+    initialAgencies
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
 
+  const branchNameMap = useMemo(
+    () => new Map(branches.map((branch) => [branch.id, branch.name])),
+    [branches]
+  );
+
   // Сортировка
   const { sortField, sortDirection, handleSort, sortData } = useSorting();
 
-  const filteredBranches = branches.filter((branch) => {
-    const matchesSearch = 
-      branch.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      branch.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      branch.phone.includes(searchQuery) ||
-      branch.email.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesStatus = 
-      statusFilter === "all" || branch.status === statusFilter;
-    
-    return matchesSearch && matchesStatus;
-  });
+  useEffect(() => {
+    const checkpointCounts = checkpoints.reduce<Record<string, number>>(
+      (acc, checkpoint) => {
+        acc[checkpoint.branchId] = (acc[checkpoint.branchId] || 0) + 1;
+        return acc;
+      },
+      {}
+    );
+
+    setBranches((prev) => {
+      let changed = false;
+      const updated = prev.map((branch) => {
+        const count = checkpointCounts[branch.id] || 0;
+        if (branch.checkpointsCount !== count) {
+          changed = true;
+          return { ...branch, checkpointsCount: count };
+        }
+        return branch;
+      });
+
+      return changed ? updated : prev;
+    });
+  }, [checkpoints, setBranches]);
+
+  const filteredBranches = useMemo(() => {
+    return branches.filter((branch) => {
+      const matchesSearch =
+        branch.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        branch.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        branch.phone.includes(searchQuery) ||
+        branch.email.toLowerCase().includes(searchQuery.toLowerCase());
+
+      const matchesStatus =
+        statusFilter === "all" || branch.status === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [branches, searchQuery, statusFilter]);
 
   const sortedBranches = sortData(filteredBranches);
+  const activeBranchesCount = useMemo(
+    () => branches.filter((branch) => branch.status === "active").length,
+    [branches]
+  );
+  const totalCheckpointsCount = useMemo(
+    () => checkpoints.length,
+    [checkpoints]
+  );
 
   const handleCreate = () => {
     setEditingBranch(null);
@@ -160,30 +135,79 @@ export function BranchesList() {
 
   const handleSave = (data: Partial<Branch>) => {
     if (editingBranch) {
-      // Update existing
-      setBranches(branches.map(b => 
-        b.id === editingBranch.id ? { ...b, ...data } : b
-      ));
+      setBranches((prev) =>
+        prev.map((branch) =>
+          branch.id === editingBranch.id
+            ? {
+                ...branch,
+                ...data,
+              }
+            : branch
+        )
+      );
     } else {
-      // Create new
       const newBranch: Branch = {
-        id: String(branches.length + 1),
-        ...data as Branch,
-        createdAt: new Date().toLocaleDateString('ru-RU'),
+        id: generateId("branch"),
+        name: data.name ?? "",
+        city: data.city ?? "",
+        region: data.region ?? "",
+        street: data.street ?? "",
+        building: data.building ?? "",
+        latitude: data.latitude || undefined,
+        longitude: data.longitude || undefined,
+        phone: data.phone ?? "",
+        email: data.email ?? "",
+        status: data.status ?? "active",
+        createdAt: new Date().toLocaleDateString("ru-RU"),
         checkpointsCount: 0,
       };
-      setBranches([...branches, newBranch]);
+      setBranches((prev) => [...prev, newBranch]);
     }
     setIsFormOpen(false);
     setEditingBranch(null);
   };
 
   const handleToggleStatus = (branch: Branch) => {
-    setBranches(branches.map(b =>
-      b.id === branch.id
-        ? { ...b, status: b.status === "active" ? "inactive" : "active" }
-        : b
-    ));
+    setBranches((prev) =>
+      prev.map((item) =>
+        item.id === branch.id
+          ? { ...item, status: item.status === "active" ? "inactive" : "active" }
+          : item
+      )
+    );
+  };
+
+  const handleDelete = (branch: Branch) => {
+    if (
+      window.confirm(
+        `Удалить филиал «${branch.name}»? Все связанные КПП будут удалены.`
+      )
+    ) {
+      setBranches((prev) => prev.filter((item) => item.id !== branch.id));
+      setCheckpoints((prev) =>
+        prev.filter((checkpoint) => checkpoint.branchId !== branch.id)
+      );
+      setAgencies((prev) =>
+        prev.map((agency) => {
+          if (!agency.branches.includes(branch.id)) {
+            return agency;
+          }
+
+          const updatedBranchIds = agency.branches.filter(
+            (id) => id !== branch.id
+          );
+          const updatedBranchNames = updatedBranchIds
+            .map((id) => branchNameMap.get(id))
+            .filter((name): name is string => Boolean(name));
+
+          return {
+            ...agency,
+            branches: updatedBranchIds,
+            branchNames: updatedBranchNames,
+          };
+        })
+      );
+    }
   };
 
   return (
@@ -193,7 +217,8 @@ export function BranchesList() {
         <div>
           <h2 className="text-foreground mb-1">Управление филиалами</h2>
           <p className="text-muted-foreground">
-            Всего филиалов: {branches.length} • Активных: {branches.filter(b => b.status === "active").length}
+            Всего филиалов: {branches.length} • Активных: {activeBranchesCount} •
+            КПП: {totalCheckpointsCount}
           </p>
         </div>
         <div className="flex gap-3">
@@ -347,6 +372,14 @@ export function BranchesList() {
                                 Активировать
                               </>
                             )}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => handleDelete(branch)}
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Удалить
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>

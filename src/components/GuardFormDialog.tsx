@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form@7.55.0";
 import {
   Dialog,
@@ -19,9 +19,12 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Checkbox } from "./ui/checkbox";
-import { Guard, CreateGuardRequest } from "../types";
+import { Guard, CreateGuardRequest, Branch, Checkpoint } from "../types";
 import { createGuard, updateGuard } from "../api/guards";
 import { toast } from "sonner@2.0.3";
+import { usePersistentCollection } from "../hooks/usePersistentCollection";
+import { STORAGE_KEYS } from "../utils/storage";
+import { initialBranches, initialCheckpoints } from "../data/initialData";
 
 interface GuardFormDialogProps {
   open: boolean;
@@ -30,24 +33,7 @@ interface GuardFormDialogProps {
   onSuccess: () => void;
 }
 
-// Mock данные для филиалов и КПП (в реальном приложении будут из API)
-const mockBranches = [
-  { id: "1", name: "Алматы - Центральный офис" },
-  { id: "2", name: "Астана - Северный" },
-  { id: "3", name: "Шымкент - Южный филиал" },
-];
-
-const mockCheckpoints = [
-  { id: "1", name: "КПП-1 (Главный въезд)", branchId: "1" },
-  { id: "2", name: "КПП-2 (Грузовой въезд)", branchId: "1" },
-  { id: "3", name: "КПП-3 (Выезд)", branchId: "1" },
-  { id: "4", name: "КПП-4 (Универсальный)", branchId: "1" },
-  { id: "5", name: "КПП-1 (Главный)", branchId: "2" },
-  { id: "6", name: "КПП-2 (Грузовой)", branchId: "2" },
-  { id: "7", name: "КПП-1", branchId: "3" },
-];
-
-const weekDays = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"];
+  const weekDays = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"];
 
 export function GuardFormDialog({
   open,
@@ -55,11 +41,24 @@ export function GuardFormDialog({
   guard,
   onSuccess,
 }: GuardFormDialogProps) {
+  const [branches] = usePersistentCollection<Branch>(
+    STORAGE_KEYS.branches,
+    initialBranches
+  );
+  const [checkpoints] = usePersistentCollection<Checkpoint>(
+    STORAGE_KEYS.checkpoints,
+    initialCheckpoints
+  );
   const [loading, setLoading] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState<string>("");
   const [selectedCheckpoint, setSelectedCheckpoint] = useState<string>("");
   const [shiftType, setShiftType] = useState<"day" | "night">("day");
   const [workDays, setWorkDays] = useState<string[]>(["ПН", "ВТ", "СР", "ЧТ", "ПТ"]);
+
+  const branchOptions = useMemo(
+    () => branches.map((branch) => ({ id: branch.id, name: branch.name })),
+    [branches]
+  );
 
   const {
     register,
@@ -144,9 +143,25 @@ export function GuardFormDialog({
     );
   };
 
-  const availableCheckpoints = mockCheckpoints.filter(
-    (cp) => cp.branchId === selectedBranch
+  const availableCheckpoints = useMemo(
+    () =>
+      checkpoints.filter((checkpoint) => checkpoint.branchId === selectedBranch),
+    [checkpoints, selectedBranch]
   );
+
+  useEffect(() => {
+    if (!selectedBranch) {
+      setSelectedCheckpoint("");
+      return;
+    }
+
+    if (
+      selectedCheckpoint &&
+      !availableCheckpoints.some((checkpoint) => checkpoint.id === selectedCheckpoint)
+    ) {
+      setSelectedCheckpoint("");
+    }
+  }, [availableCheckpoints, selectedBranch, selectedCheckpoint]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -261,7 +276,7 @@ export function GuardFormDialog({
                     <SelectValue placeholder="Выберите филиал" />
                   </SelectTrigger>
                   <SelectContent>
-                    {mockBranches.map((branch) => (
+                    {branchOptions.map((branch) => (
                       <SelectItem key={branch.id} value={branch.id}>
                         {branch.name}
                       </SelectItem>
