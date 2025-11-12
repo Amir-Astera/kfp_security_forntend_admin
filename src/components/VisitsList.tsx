@@ -19,33 +19,24 @@ import {
 } from "./ui/select";
 import { StatusBadge } from "./StatusBadge";
 import { VisitDetailDialog } from "./VisitDetailDialog";
-import {
-  Search,
-  Download,
-  Eye,
-  Filter,
-  Calendar,
-  Clock,
-  Truck,
-  User,
-  LogOut,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
-} from "lucide-react";
+import { VisitFormDialog } from "./VisitFormDialog";
+import { SortableTableHead } from "./SortableTableHead";
+import { Search, Download, Eye, Filter, Calendar, Clock, Truck, User, LogOut, Plus } from "lucide-react";
 import { Badge } from "./ui/badge";
-import { Visit, VisitFilters } from "../types";
-import { getVisits, checkoutVisit, exportVisits } from "../api/visits";
+import { Visit } from "../types";
+import { db } from "../services";
 import { toast } from "sonner@2.0.3";
-
-type SortField = "entryTime" | "fullName" | "company" | "branchName" | "purpose" | "status";
-type SortDirection = "asc" | "desc" | null;
+import { useSorting } from "./hooks/useSorting";
+import { exportVisits } from "../utils/export";
 
 export function VisitsList() {
   const [visits, setVisits] = useState<Visit[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [checkpoints, setCheckpoints] = useState<any[]>([]);
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  const [formDialogOpen, setFormDialogOpen] = useState(false);
+  const [editingVisit, setEditingVisit] = useState<Visit | null>(null);
   
   // Фильтры
   const [searchQuery, setSearchQuery] = useState("");
@@ -56,131 +47,87 @@ export function VisitsList() {
   const [purposeFilter, setPurposeFilter] = useState<string>("all");
 
   // Сортировка
-  const [sortField, setSortField] = useState<SortField | null>(null);
-  const [sortDirection, setSortDirection] = useState<SortDirection>(null);
+  const { sortField, sortDirection, handleSort, sortData } = useSorting();
 
   // Загрузка данных
   useEffect(() => {
     loadVisits();
-  }, [searchQuery, branchFilter, checkpointFilter, statusFilter, vehicleFilter, purposeFilter]);
+    loadBranches();
+    loadCheckpoints();
+  }, []);
 
-  const loadVisits = async () => {
-    setLoading(true);
+  const loadVisits = () => {
     try {
-      const filters: VisitFilters = {
-        search: searchQuery || undefined,
-        branchId: branchFilter !== "all" ? branchFilter : undefined,
-        checkpointId: checkpointFilter !== "all" ? checkpointFilter : undefined,
-        status: statusFilter !== "all" ? (statusFilter as "on-site" | "left") : undefined,
-        hasVehicle: vehicleFilter === "yes" ? true : vehicleFilter === "no" ? false : undefined,
-        purpose: purposeFilter !== "all" ? purposeFilter : undefined,
-      };
-
-      const response = await getVisits(filters);
-      setVisits(response.items);
+      const data = db.getVisits();
+      setVisits(data);
     } catch (error) {
-      toast.error("Ошибка загрузки визитов");
-    } finally {
-      setLoading(false);
+      console.error('Ошибка загрузки визитов:', error);
+      toast.error('Не удалось загрузить визиты');
     }
   };
 
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      // Cycling through: asc -> desc -> null
-      if (sortDirection === "asc") {
-        setSortDirection("desc");
-      } else if (sortDirection === "desc") {
-        setSortDirection(null);
-        setSortField(null);
-      }
-    } else {
-      setSortField(field);
-      setSortDirection("asc");
+  const loadBranches = () => {
+    try {
+      const data = db.getBranches();
+      setBranches(data);
+    } catch (error) {
+      console.error('Ошибка загрузки филиалов:', error);
     }
   };
 
-  const getSortedVisits = () => {
-    if (!sortField || !sortDirection) return visits;
-
-    return [...visits].sort((a, b) => {
-      let aVal: any = a[sortField];
-      let bVal: any = b[sortField];
-
-      // Special handling for dates
-      if (sortField === "entryTime") {
-        aVal = new Date(a.entryTime.split(" ").reverse().join("-")).getTime();
-        bVal = new Date(b.entryTime.split(" ").reverse().join("-")).getTime();
-      }
-
-      if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
-      if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
-      return 0;
-    });
+  const loadCheckpoints = () => {
+    try {
+      const data = db.getCheckpoints();
+      setCheckpoints(data);
+    } catch (error) {
+      console.error('Ошибка загрузки КПП:', error);
+    }
   };
 
-  const SortButton = ({ field, label }: { field: SortField; label: string }) => (
-    <button
-      onClick={() => handleSort(field)}
-      className="flex items-center gap-1 hover:text-foreground transition-colors"
-    >
-      {label}
-      {sortField === field ? (
-        sortDirection === "asc" ? (
-          <ArrowUp className="w-4 h-4" />
-        ) : (
-          <ArrowDown className="w-4 h-4" />
-        )
-      ) : (
-        <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-50" />
-      )}
-    </button>
-  );
+  const handleCreateOrUpdate = (data: any) => {
+    try {
+      if (editingVisit) {
+        db.updateVisit(editingVisit.id, data);
+        toast.success('Визит успешно обновлен');
+      } else {
+        db.createVisit(data);
+        toast.success('Визит успешно зарегистрирован');
+      }
+      loadVisits();
+      setFormDialogOpen(false);
+      setEditingVisit(null);
+    } catch (error) {
+      console.error('Ошибка сохранения визита:', error);
+      toast.error('Не удалось сохранить визит');
+    }
+  };
+
+  const handleCheckout = (visit: Visit) => {
+    try {
+      const exitTime = new Date().toLocaleTimeString('ru-RU', {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      db.updateVisit(visit.id, { 
+        status: 'left',
+        exitTime 
+      });
+      toast.success(`Визитор ${visit.fullName} выписан в ${exitTime}`);
+      loadVisits();
+    } catch (error) {
+      console.error('Ошибка выписки визита:', error);
+      toast.error('Не удалось выписать визитора');
+    }
+  };
 
   const handleViewDetails = (visit: Visit) => {
     setSelectedVisit(visit);
     setDetailDialogOpen(true);
   };
 
-  const handleCheckout = async (visit: Visit) => {
-    try {
-      await checkoutVisit(visit.id);
-      toast.success(`${visit.fullName} покинул территорию`);
-      loadVisits();
-    } catch (error) {
-      toast.error("Ошибка при регистрации выхода");
-    }
+  const handleExport = () => {
+    exportVisits(visits);
   };
-
-  const handleExport = async () => {
-    try {
-      const url = await exportVisits({
-        search: searchQuery || undefined,
-        branchId: branchFilter !== "all" ? branchFilter : undefined,
-      });
-      toast.success("Экспорт успешно выполнен");
-      // В реальном приложении здесь будет скачивание файла
-      console.log("Export URL:", url);
-    } catch (error) {
-      toast.error("Ошибка экспорта");
-    }
-  };
-
-  const branches = Array.from(
-    new Map(visits.map((v) => [v.branchId, { id: v.branchId, name: v.branchName }])).values()
-  );
-
-  const checkpoints = branchFilter === "all"
-    ? Array.from(
-        new Map(visits.map((v) => [v.checkpointId, { id: v.checkpointId, name: v.checkpointName }])).values()
-      )
-    : Array.from(
-        new Map(
-          visits
-            .filter((v) => v.branchId === branchFilter)
-            .map((v) => [v.checkpointId, { id: v.checkpointId, name: v.checkpointName }])
-        ).values()
-      );
 
   const purposes = [
     "Деловая встреча",
@@ -192,9 +139,38 @@ export function VisitsList() {
     "Прочее",
   ];
 
+  // Фильтрация
+  const filteredVisits = visits.filter((visit) => {
+    const matchesSearch =
+      visit.fullName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      visit.iin?.includes(searchQuery) ||
+      visit.company?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      visit.phone?.includes(searchQuery) ||
+      visit.vehicleNumber?.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchesBranch = branchFilter === "all" || visit.branchId === branchFilter;
+    const matchesCheckpoint = checkpointFilter === "all" || visit.checkpointId === checkpointFilter;
+    const matchesStatus = statusFilter === "all" || visit.status === statusFilter;
+    const matchesVehicle =
+      vehicleFilter === "all" ||
+      (vehicleFilter === "yes" && visit.hasVehicle) ||
+      (vehicleFilter === "no" && !visit.hasVehicle);
+    const matchesPurpose = purposeFilter === "all" || visit.purpose === purposeFilter;
+
+    return (
+      matchesSearch &&
+      matchesBranch &&
+      matchesCheckpoint &&
+      matchesStatus &&
+      matchesVehicle &&
+      matchesPurpose
+    );
+  });
+
+  const sortedVisits = sortData(filteredVisits);
+
   const onSiteCount = visits.filter((v) => v.status === "on-site").length;
   const vehicleCount = visits.filter((v) => v.hasVehicle).length;
-  const sortedVisits = getSortedVisits();
 
   return (
     <div className="space-y-6">
@@ -211,6 +187,10 @@ export function VisitsList() {
           <Button variant="outline" onClick={handleExport}>
             <Download className="w-4 h-4 mr-2" />
             Экспорт .xlsx
+          </Button>
+          <Button variant="outline" onClick={() => setFormDialogOpen(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Добавить визит
           </Button>
         </div>
       </div>
@@ -309,18 +289,42 @@ export function VisitsList() {
               <TableHeader>
                 <TableRow className="group">
                   <TableHead className="whitespace-nowrap">
-                    <SortButton field="entryTime" label="Время въезда" />
+                    <SortableTableHead
+                      field="entryTime"
+                      label="Время въезда"
+                      sortField={sortField}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
                   </TableHead>
                   <TableHead className="whitespace-nowrap">
-                    <SortButton field="fullName" label="ФИО / Компания" />
+                    <SortableTableHead
+                      field="fullName"
+                      label="ФИО / Компания"
+                      sortField={sortField}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
                   </TableHead>
                   <TableHead className="whitespace-nowrap">ИИН / Телефон</TableHead>
                   <TableHead className="whitespace-nowrap">
-                    <SortButton field="branchName" label="Филиал / КПП" />
+                    <SortableTableHead
+                      field="branchName"
+                      label="Филиал / КПП"
+                      sortField={sortField}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
                   </TableHead>
                   <TableHead className="whitespace-nowrap">Места посещения</TableHead>
                   <TableHead className="whitespace-nowrap">
-                    <SortButton field="purpose" label="Цель визита" />
+                    <SortableTableHead
+                      field="purpose"
+                      label="Цель визита"
+                      sortField={sortField}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
                   </TableHead>
                   <TableHead className="whitespace-nowrap">Транспорт</TableHead>
                   <TableHead className="whitespace-nowrap">Тип груза</TableHead>
@@ -329,19 +333,19 @@ export function VisitsList() {
                   <TableHead className="whitespace-nowrap">Охранник / Агентство</TableHead>
                   <TableHead className="whitespace-nowrap">Время на территории</TableHead>
                   <TableHead className="whitespace-nowrap">
-                    <SortButton field="status" label="Статус" />
+                    <SortableTableHead
+                      field="status"
+                      label="Статус"
+                      sortField={sortField}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
                   </TableHead>
                   <TableHead className="w-[100px] whitespace-nowrap">Действия</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={14} className="text-center py-12">
-                      Загрузка...
-                    </TableCell>
-                  </TableRow>
-                ) : sortedVisits.length === 0 ? (
+                {!sortedVisits || sortedVisits.length === 0 ? (
                   <TableRow>
                     <TableCell
                       colSpan={14}
@@ -517,6 +521,14 @@ export function VisitsList() {
         open={detailDialogOpen}
         onOpenChange={setDetailDialogOpen}
         onCheckout={handleCheckout}
+      />
+
+      {/* Form Dialog */}
+      <VisitFormDialog
+        visit={editingVisit}
+        open={formDialogOpen}
+        onOpenChange={setFormDialogOpen}
+        onCreateOrUpdate={handleCreateOrUpdate}
       />
     </div>
   );

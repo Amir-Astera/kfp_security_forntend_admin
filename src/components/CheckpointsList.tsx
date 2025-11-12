@@ -1,9 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { SortableTableHead } from "./SortableTableHead";
-import { useSorting } from "./hooks/useSorting";
 import {
   Table,
   TableBody,
@@ -19,149 +17,83 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
+import { Badge } from "./ui/badge";
 import { StatusBadge } from "./StatusBadge";
 import { CheckpointFormDialog } from "./CheckpointFormDialog";
+import { SortableTableHead } from "./SortableTableHead";
+import { useSorting } from "./hooks/useSorting";
 import {
   Plus,
   Search,
   Download,
   MoreVertical,
   Edit,
+  Copy,
   Ban,
   CheckCircle,
-  Copy,
-  Trash2,
 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import { Badge } from "./ui/badge";
-import { Checkpoint, Branch, Guard } from "../types";
-import { usePersistentCollection } from "../hooks/usePersistentCollection";
-import { STORAGE_KEYS } from "../utils/storage";
-import {
-  initialCheckpoints,
-  initialBranches,
-  initialGuards,
-} from "../data/initialData";
-import { generateId } from "../utils/id";
-
-const typeLabels = {
-  entry: "Въезд",
-  exit: "Выезд",
-  universal: "Универсальный",
-};
-
-const typeColors = {
-  entry: "bg-info/10 text-info border-info/20",
-  exit: "bg-warning/10 text-warning border-warning/20",
-  universal: "bg-success/10 text-success border-success/20",
-};
+import { db } from "../services";
+import { toast } from "sonner";
+import type { Checkpoint } from "../types";
 
 export function CheckpointsList() {
-  const [checkpoints, setCheckpoints] = usePersistentCollection<Checkpoint>(
-    STORAGE_KEYS.checkpoints,
-    initialCheckpoints
-  );
-  const [branches] = usePersistentCollection<Branch>(
-    STORAGE_KEYS.branches,
-    initialBranches
-  );
-  const [guards] = usePersistentCollection<Guard>(
-    STORAGE_KEYS.guards,
-    initialGuards
-  );
+  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
+  const [branches, setBranches] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [branchFilter, setBranchFilter] = useState<string>("all");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [branchFilter, setBranchFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingCheckpoint, setEditingCheckpoint] = useState<Checkpoint | null>(null);
 
-  // Сортировка
   const { sortField, sortDirection, handleSort, sortData } = useSorting();
 
-  const branchMap = useMemo(
-    () => new Map(branches.map((branch) => [branch.id, branch.name])),
-    [branches]
-  );
+  // Загрузка данных
+  const loadCheckpoints = () => {
+    try {
+      const data = db.getCheckpoints();
+      setCheckpoints(data);
+    } catch (error) {
+      console.error("Ошибка загрузки КПП:", error);
+      toast.error("Не удалось загрузить КПП");
+    }
+  };
 
-  const branchOptions = useMemo(() => {
-    const map = new Map<string, string>();
-    branches.forEach((branch) => map.set(branch.id, branch.name));
-    checkpoints.forEach((checkpoint) => {
-      if (!map.has(checkpoint.branchId)) {
-        map.set(checkpoint.branchId, checkpoint.branchName);
+  const loadBranches = () => {
+    try {
+      const data = db.getBranches();
+      setBranches(data);
+    } catch (error) {
+      console.error("Ошибка загрузки филиалов:", error);
+    }
+  };
+
+  useEffect(() => {
+    loadCheckpoints();
+    loadBranches();
+  }, []);
+
+  const handleCreateOrUpdate = (data: any) => {
+    try {
+      if (editingCheckpoint) {
+        db.updateCheckpoint(editingCheckpoint.id, data);
+        toast.success("КПП успешно обновлен");
+      } else {
+        db.createCheckpoint(data);
+        toast.success("КПП успешно создан");
       }
-    });
-    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
-  }, [branches, checkpoints]);
-
-  const filteredCheckpoints = useMemo(() => {
-    return checkpoints.filter((checkpoint) => {
-      const matchesSearch =
-        checkpoint.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        checkpoint.branchName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        checkpoint.description?.toLowerCase().includes(searchQuery.toLowerCase());
-
-      const matchesBranch =
-        branchFilter === "all" || checkpoint.branchId === branchFilter;
-
-      const matchesType = typeFilter === "all" || checkpoint.type === typeFilter;
-
-      const matchesStatus =
-        statusFilter === "all" || checkpoint.status === statusFilter;
-
-      return matchesSearch && matchesBranch && matchesType && matchesStatus;
-    });
-  }, [branchFilter, checkpoints, searchQuery, statusFilter, typeFilter]);
-
-  const sortedCheckpoints = sortData(filteredCheckpoints);
-
-  useEffect(() => {
-    setCheckpoints((prev) => {
-      let changed = false;
-      const updated = prev.map((checkpoint) => {
-        const branchName = branchMap.get(checkpoint.branchId);
-        if (branchName && branchName !== checkpoint.branchName) {
-          changed = true;
-          return { ...checkpoint, branchName };
-        }
-        return checkpoint;
-      });
-
-      return changed ? updated : prev;
-    });
-  }, [branchMap, setCheckpoints]);
-
-  useEffect(() => {
-    const guardCounts = guards.reduce<Record<string, number>>((acc, guard) => {
-      acc[guard.checkpointId] = (acc[guard.checkpointId] || 0) + 1;
-      return acc;
-    }, {});
-
-    setCheckpoints((prev) => {
-      let changed = false;
-      const updated = prev.map((checkpoint) => {
-        const count = guardCounts[checkpoint.id] || 0;
-        if (checkpoint.guardsCount !== count) {
-          changed = true;
-          return { ...checkpoint, guardsCount: count };
-        }
-        return checkpoint;
-      });
-
-      return changed ? updated : prev;
-    });
-  }, [guards, setCheckpoints]);
-
-  const handleCreate = () => {
-    setEditingCheckpoint(null);
-    setIsFormOpen(true);
+      loadCheckpoints();
+      setIsFormOpen(false);
+      setEditingCheckpoint(null);
+    } catch (error) {
+      console.error("Ошибка сохранения КПП:", error);
+      toast.error("Не удалось сохранить КПП");
+    }
   };
 
   const handleEdit = (checkpoint: Checkpoint) => {
@@ -169,69 +101,64 @@ export function CheckpointsList() {
     setIsFormOpen(true);
   };
 
-  const handleSave = (data: Partial<Checkpoint>) => {
-    if (editingCheckpoint) {
-      setCheckpoints((prev) =>
-        prev.map((checkpoint) => {
-          if (checkpoint.id !== editingCheckpoint.id) {
-            return checkpoint;
-          }
-
-          const branchId = data.branchId ?? checkpoint.branchId;
-          const branchName = branchMap.get(branchId) ?? checkpoint.branchName;
-
-          return {
-            ...checkpoint,
-            ...data,
-            branchId,
-            branchName,
-          };
-        })
-      );
-    } else {
-      const branchId = data.branchId ?? "";
-      const newCheckpoint: Checkpoint = {
-        id: generateId("checkpoint"),
-        name: data.name ?? "",
-        branchId,
-        branchName: branchMap.get(branchId) ?? data.branchName ?? "",
-        type: data.type ?? "universal",
-        description: data.description,
-        status: data.status ?? "active",
-        createdAt: new Date().toLocaleDateString("ru-RU"),
-        guardsCount: 0,
-      };
-      setCheckpoints((prev) => [...prev, newCheckpoint]);
-    }
-    setIsFormOpen(false);
-    setEditingCheckpoint(null);
-  };
-
   const handleToggleStatus = (checkpoint: Checkpoint) => {
-    setCheckpoints((prev) =>
-      prev.map((item) =>
-        item.id === checkpoint.id
-          ? { ...item, status: item.status === "active" ? "inactive" : "active" }
-          : item
-      )
-    );
+    try {
+      const newStatus = checkpoint.status === "active" ? "inactive" : "active";
+      db.updateCheckpoint(checkpoint.id, { status: newStatus });
+      toast.success(
+        `КПП ${newStatus === "active" ? "активирован" : "деактивирован"}`
+      );
+      loadCheckpoints();
+    } catch (error) {
+      console.error("Ошибка изменения статуса:", error);
+      toast.error("Не удалось изменить статус");
+    }
   };
 
   const handleDuplicate = (checkpoint: Checkpoint) => {
-    const newCheckpoint: Checkpoint = {
-      ...checkpoint,
-      id: generateId("checkpoint"),
-      name: `${checkpoint.name} (копия)`,
-      createdAt: new Date().toLocaleDateString("ru-RU"),
-      guardsCount: 0,
-    };
-    setCheckpoints((prev) => [...prev, newCheckpoint]);
+    try {
+      db.createCheckpoint({
+        name: `${checkpoint.name} (копия)`,
+        branchId: checkpoint.branchId,
+        type: checkpoint.type,
+        description: checkpoint.description,
+        status: checkpoint.status,
+      });
+      toast.success("КПП успешно дублирован");
+      loadCheckpoints();
+    } catch (error) {
+      console.error("Ошибка дублирования КПП:", error);
+      toast.error("Не удалось дублировать КПП");
+    }
   };
 
-  const handleDelete = (checkpoint: Checkpoint) => {
-    if (window.confirm(`Удалить КПП «${checkpoint.name}»?`)) {
-      setCheckpoints((prev) => prev.filter((item) => item.id !== checkpoint.id));
-    }
+  const filteredCheckpoints = checkpoints.filter((checkpoint) => {
+    const matchesSearch =
+      checkpoint.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      checkpoint.branchName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      checkpoint.description?.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchesBranch =
+      branchFilter === "all" || checkpoint.branchId === branchFilter;
+
+    const matchesStatus =
+      statusFilter === "all" || checkpoint.status === statusFilter;
+
+    return matchesSearch && matchesBranch && matchesStatus;
+  });
+
+  const sortedCheckpoints = sortData(filteredCheckpoints);
+
+  const typeLabels = {
+    entry: "Въезд",
+    exit: "Выезд",
+    universal: "Универсальный",
+  };
+
+  const typeColors = {
+    entry: "bg-info/10 text-info border-info/20",
+    exit: "bg-warning/10 text-warning border-warning/20",
+    universal: "bg-success/10 text-success border-success/20",
   };
 
   return (
@@ -250,7 +177,10 @@ export function CheckpointsList() {
             <Download className="w-4 h-4 mr-2" />
             Экспорт .xlsx
           </Button>
-          <Button onClick={handleCreate}>
+          <Button onClick={() => {
+            setEditingCheckpoint(null);
+            setIsFormOpen(true);
+          }}>
             <Plus className="w-4 h-4 mr-2" />
             Добавить КПП
           </Button>
@@ -275,22 +205,11 @@ export function CheckpointsList() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Все филиалы</SelectItem>
-              {branchOptions.map((branch) => (
+              {branches.map((branch) => (
                 <SelectItem key={branch.id} value={branch.id}>
                   {branch.name}
                 </SelectItem>
               ))}
-            </SelectContent>
-          </Select>
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Все типы</SelectItem>
-              <SelectItem value="entry">Въезд</SelectItem>
-              <SelectItem value="exit">Выезд</SelectItem>
-              <SelectItem value="universal">Универсальный</SelectItem>
             </SelectContent>
           </Select>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -325,15 +244,6 @@ export function CheckpointsList() {
                   <SortableTableHead
                     field="branchName"
                     label="Филиал"
-                    sortField={sortField}
-                    sortDirection={sortDirection}
-                    onSort={handleSort}
-                  />
-                </TableHead>
-                <TableHead>
-                  <SortableTableHead
-                    field="type"
-                    label="Тип"
                     sortField={sortField}
                     sortDirection={sortDirection}
                     onSort={handleSort}
@@ -374,7 +284,7 @@ export function CheckpointsList() {
               {sortedCheckpoints.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={8}
+                    colSpan={7}
                     className="text-center py-12 text-muted-foreground"
                   >
                     КПП не найдены
@@ -388,14 +298,6 @@ export function CheckpointsList() {
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {checkpoint.branchName}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={typeColors[checkpoint.type]}
-                      >
-                        {typeLabels[checkpoint.type]}
-                      </Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground max-w-[250px]">
                       {checkpoint.description || "—"}
@@ -440,14 +342,6 @@ export function CheckpointsList() {
                               </>
                             )}
                           </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={() => handleDelete(checkpoint)}
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Удалить
-                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -460,10 +354,10 @@ export function CheckpointsList() {
       </Card>
 
       {/* Pagination */}
-      {filteredCheckpoints.length > 0 && (
+      {sortedCheckpoints.length > 0 && (
         <div className="flex items-center justify-between">
           <p className="text-muted-foreground">
-            Показано {filteredCheckpoints.length} из {checkpoints.length}
+            Показано {sortedCheckpoints.length} из {checkpoints.length}
           </p>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" disabled>
@@ -481,7 +375,7 @@ export function CheckpointsList() {
         open={isFormOpen}
         onOpenChange={setIsFormOpen}
         checkpoint={editingCheckpoint}
-        onSave={handleSave}
+        onSave={handleCreateOrUpdate}
       />
     </div>
   );

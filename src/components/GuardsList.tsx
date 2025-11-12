@@ -41,9 +41,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import { Guard, GuardFilters } from "../types";
-import { getGuards, resetGuardPassword, updateGuard, exportGuards } from "../api/guards";
+import { Guard } from "../types";
+import { db } from "../services";
 import { toast } from "sonner@2.0.3";
+import { exportGuards } from "../utils/export";
 
 const statusLabels = {
   active: "Активен",
@@ -61,7 +62,8 @@ const statusColors = {
 
 export function GuardsList() {
   const [guards, setGuards] = useState<Guard[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [agencies, setAgencies] = useState<any[]>([]);
+  const [branches, setBranches] = useState<any[]>([]);
 
   // Фильтры
   const [searchQuery, setSearchQuery] = useState("");
@@ -75,89 +77,104 @@ export function GuardsList() {
 
   useEffect(() => {
     loadGuards();
-  }, [searchQuery, agencyFilter, branchFilter, statusFilter, shiftFilter]);
+    loadAgencies();
+    loadBranches();
+  }, []);
 
-  const loadGuards = async () => {
-    setLoading(true);
+  const loadGuards = () => {
     try {
-      const filters: GuardFilters = {
-        search: searchQuery || undefined,
-        agencyId: agencyFilter !== "all" ? agencyFilter : undefined,
-        branchId: branchFilter !== "all" ? branchFilter : undefined,
-        status: statusFilter !== "all" ? (statusFilter as any) : undefined,
-        shiftType: shiftFilter !== "all" ? (shiftFilter as any) : undefined,
-      };
-
-      const response = await getGuards(filters);
-      setGuards(response.items);
+      const data = db.getGuards();
+      setGuards(data);
     } catch (error) {
-      toast.error("Ошибка загрузки охранников");
-    } finally {
-      setLoading(false);
+      console.error("Ошибка загрузки охранников:", error);
+      toast.error("Не удалось загрузить охранников");
     }
   };
 
-  const handleResetPassword = async (guard: Guard) => {
+  const loadAgencies = () => {
     try {
-      await resetGuardPassword(guard.id);
-      toast.success(
-        `Пароль сброшен. Новый пароль отправлен на ${guard.loginEmail}`
-      );
+      const data = db.getAgencies();
+      setAgencies(data);
     } catch (error) {
-      toast.error("Ошибка сброса пароля");
+      console.error("Ошибка загрузки агентств:", error);
     }
   };
 
-  const handleToggleStatus = async (guard: Guard) => {
-    const newStatus = guard.status === "active" ? "inactive" : "active";
+  const loadBranches = () => {
     try {
-      await updateGuard(guard.id, { status: newStatus });
+      const data = db.getBranches();
+      setBranches(data);
+    } catch (error) {
+      console.error("Ошибка загрузки филиалов:", error);
+    }
+  };
+
+  const handleToggleStatus = (guard: Guard) => {
+    try {
+      const newStatus = guard.status === "active" ? "inactive" : "active";
+      db.updateGuard(guard.id, { status: newStatus });
       toast.success(
         `Охранник ${newStatus === "active" ? "активирован" : "деактивирован"}`
       );
       loadGuards();
     } catch (error) {
-      toast.error("Ошибка изменения статуса");
+      console.error("Ошибка изменения статуса:", error);
+      toast.error("Не удалось изменить статус");
     }
   };
 
-  const handleViewStats = (guard: Guard) => {
-    toast.info(
-      `Статистика ${guard.fullName}:\n\nВсего визитов: ${guard.visitsCount}\nПоследняя активность: ${guard.lastActivity || "Нет данных"}`
+  const handleResetPassword = (guard: Guard) => {
+    toast.success(
+      `Пароль для ${guard.loginEmail} сброшен. Новый пароль отправлен на email.`
     );
   };
 
-  const handleExport = async () => {
-    try {
-      const url = await exportGuards({
-        search: searchQuery || undefined,
-      });
-      toast.success("Экспорт успешно выполнен");
-      console.log("Export URL:", url);
-    } catch (error) {
-      toast.error("Ошибка экспорта");
-    }
+  const handleViewStats = (guard: Guard) => {
+    alert(
+      `Статистика для ${guard.fullName}:\n\nВизитов зарегистрировано: ${guard.visitsCount}\nПоследняя активность: ${guard.lastActivity || "Нет данных"}`
+    );
   };
 
-  const agencies = Array.from(
-    new Map(guards.map((g) => [g.agencyId, { id: g.agencyId, name: g.agencyName }])).values()
-  );
-
-  const branches = agencyFilter === "all"
-    ? Array.from(
-        new Map(guards.map((g) => [g.branchId, { id: g.branchId, name: g.branchName }])).values()
-      )
-    : Array.from(
-        new Map(
-          guards
-            .filter((g) => g.agencyId === agencyFilter)
-            .map((g) => [g.branchId, { id: g.branchId, name: g.branchName }])
-        ).values()
-      );
+  const handleExport = () => {
+    exportGuards(guards);
+    toast.success(
+      "Экспорт охранников начат. Файл будет загружен через несколько секунд."
+    );
+  };
 
   const activeCount = guards.filter((g) => g.status === "active").length;
   const totalVisits = guards.reduce((sum, g) => sum + g.visitsCount, 0);
-  const sortedGuards = sortData(guards);
+
+  // Фильтрация данных
+  const filteredGuards = guards.filter((guard) => {
+    const matchesSearch =
+      guard.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      guard.iin.includes(searchQuery) ||
+      guard.phone.includes(searchQuery) ||
+      guard.loginEmail.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchesAgency =
+      agencyFilter === "all" || guard.agencyId === agencyFilter;
+
+    const matchesBranch =
+      branchFilter === "all" || guard.branchId === branchFilter;
+
+    const matchesStatus =
+      statusFilter === "all" || guard.status === statusFilter;
+
+    const matchesShift =
+      shiftFilter === "all" || guard.shiftType === shiftFilter;
+
+    return (
+      matchesSearch &&
+      matchesAgency &&
+      matchesBranch &&
+      matchesStatus &&
+      matchesShift
+    );
+  });
+
+  const sortedGuards = sortData(filteredGuards);
 
   return (
     <div className="space-y-6">
@@ -322,13 +339,7 @@ export function GuardsList() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={10} className="text-center py-12">
-                    Загрузка...
-                  </TableCell>
-                </TableRow>
-              ) : sortedGuards.length === 0 ? (
+              {!sortedGuards || sortedGuards.length === 0 ? (
                 <TableRow>
                   <TableCell
                     colSpan={10}
@@ -454,7 +465,7 @@ export function GuardsList() {
                             {guard.status === "active" ? (
                               <>
                                 <Ban className="w-4 h-4 mr-2" />
-                                Деа��тивировать
+                                Деактивировать
                               </>
                             ) : (
                               <>

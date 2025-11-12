@@ -3,11 +3,12 @@ import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Shield, User, Building2 } from "lucide-react";
+import { Shield, User, Building2, UserCog } from "lucide-react";
 import { toast } from "sonner@2.0.3";
+import { db } from "../services";
 
 interface LoginPageProps {
-  onLogin: (role: "superadmin" | "agency", userName: string) => void;
+  onLogin: (role: "superadmin" | "agency" | "guard", userName: string, userId: string) => void;
 }
 
 // Моковые пользователи (не отображаются в UI)
@@ -16,23 +17,25 @@ const MOCK_USERS = {
     email: "admin@kfp.kz",
     password: "admin123",
     name: "Суперадминистратор",
+    id: "superadmin-1",
   },
   agency: {
     email: "agency@kzsecurity.kz",
     password: "agency123",
     name: "ТОО «Казахстан Секьюрити»",
+    id: "agency-1",
   },
 };
 
 export function LoginPage({ onLogin }: LoginPageProps) {
-  const [selectedRole, setSelectedRole] = useState<"superadmin" | "agency" | null>(
+  const [selectedRole, setSelectedRole] = useState<"superadmin" | "agency" | "guard" | null>(
     null
   );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleRoleSelect = (role: "superadmin" | "agency") => {
+  const handleRoleSelect = (role: "superadmin" | "agency" | "guard") => {
     setSelectedRole(role);
     setEmail("");
     setPassword("");
@@ -51,11 +54,46 @@ export function LoginPage({ onLogin }: LoginPageProps) {
     // Имитация задержки запроса
     await new Promise((resolve) => setTimeout(resolve, 800));
 
+    // Проверка для охранников
+    if (selectedRole === "guard") {
+      const guards = db.getGuards ? db.getGuards() : [];
+      console.log("🔍 Всего охранников в базе:", guards.length);
+      console.log("🔍 Поиск охранника с email:", email);
+      
+      const guard = guards.find((g) => g.loginEmail === email);
+
+      if (guard) {
+        console.log("👤 Найден охранник:", guard.fullName);
+        console.log("🔑 Пароль в базе:", guard.password);
+        console.log("🔑 Введенный пароль:", password);
+        
+        if (guard.password === password) {
+          console.log("✅ Пароли совпадают!");
+          toast.success("Вход выполнен успешно");
+          onLogin("guard", guard.fullName, guard.id);
+          setLoading(false);
+          return;
+        } else {
+          console.error("❌ Пароли не совпадают");
+          toast.error("Неверный пароль");
+          setLoading(false);
+          return;
+        }
+      } else {
+        console.error("❌ Охранник с email", email, "не найден");
+        console.log("📋 Список всех email охранников:", guards.map(g => g.loginEmail));
+        toast.error("Охранник с таким email не найден");
+        setLoading(false);
+        return;
+      }
+    }
+
+    // Проверка для админа и агентства
     const mockUser = MOCK_USERS[selectedRole];
 
-    if (email === mockUser.email && password === mockUser.password) {
+    if (mockUser && email === mockUser.email && password === mockUser.password) {
       toast.success("Вход выполнен успешно");
-      onLogin(selectedRole, mockUser.name);
+      onLogin(selectedRole, mockUser.name, mockUser.id);
     } else {
       toast.error("Неверный email или пароль");
     }
@@ -85,7 +123,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
 
         {!selectedRole ? (
           /* Role Selection */
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className="grid md:grid-cols-3 gap-6">
             {/* Superadmin Card */}
             <Card
               className="p-8 cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-primary"
@@ -133,6 +171,29 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 </Button>
               </div>
             </Card>
+
+            {/* Guard Card */}
+            <Card
+              className="p-8 cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-primary"
+              onClick={() => handleRoleSelect("guard")}
+            >
+              <div className="text-center space-y-4">
+                <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-success/10">
+                  <UserCog className="w-10 h-10 text-success" />
+                </div>
+                <div>
+                  <h2 className="text-2xl text-foreground mb-2">
+                    Охранник КПП
+                  </h2>
+                  <p className="text-muted-foreground">
+                    Регистрация въезда и выезда гостей и транспорта, просмотр статистики за смену
+                  </p>
+                </div>
+                <Button size="lg" variant="outline" className="w-full">
+                  Войти как охранник
+                </Button>
+              </div>
+            </Card>
           </div>
         ) : (
           /* Login Form */
@@ -141,14 +202,18 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
                 {selectedRole === "superadmin" ? (
                   <User className="w-8 h-8 text-primary" />
-                ) : (
+                ) : selectedRole === "agency" ? (
                   <Building2 className="w-8 h-8 text-info" />
+                ) : (
+                  <UserCog className="w-8 h-8 text-success" />
                 )}
               </div>
               <h2 className="text-2xl text-foreground mb-2">
                 {selectedRole === "superadmin"
                   ? "Вход суперадминистратора"
-                  : "Вход охранного агентства"}
+                  : selectedRole === "agency"
+                  ? "Вход охранного агентства"
+                  : "Вход охранника"}
               </h2>
               <p className="text-muted-foreground">
                 Введите ваши учетные данные для входа

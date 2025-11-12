@@ -11,7 +11,8 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Avatar, AvatarFallback } from "./ui/avatar";
-import { Calendar as CalendarIcon, Sun, Moon, Users, Filter } from "lucide-react";
+import { Calendar as CalendarIcon, Sun, Moon, Users, Filter, Eye } from "lucide-react";
+import { ShiftDetailDialog } from "./ShiftDetailDialog";
 
 interface ShiftEvent {
   id: string;
@@ -102,12 +103,17 @@ export function ScheduleManager() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date(2025, 10, 4));
   const [viewMode, setViewMode] = useState<"week" | "month">("week");
   const [filterBranch, setFilterBranch] = useState<string>("all");
+  const [selectedShift, setSelectedShift] = useState<ShiftEvent | null>(null);
 
   const selectedDateStr = selectedDate.toISOString().split("T")[0];
   const todayShifts = mockSchedule.filter((s) => s.date === selectedDateStr);
 
   const getShiftsForDate = (date: string) => {
     return mockSchedule.filter((s) => s.date === date);
+  };
+
+  const handleViewShiftDetails = (shift: ShiftEvent) => {
+    setSelectedShift(shift);
   };
 
   return (
@@ -281,6 +287,17 @@ export function ScheduleManager() {
                         ? "Пропущена"
                         : "Запланирована"}
                     </Badge>
+
+                    {shift.status === "completed" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleViewShiftDetails(shift)}
+                      >
+                        <Eye className="w-4 h-4 mr-1" />
+                        Детали
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -458,6 +475,14 @@ export function ScheduleManager() {
         </Button>
         <Button variant="outline">Создать шаблон</Button>
       </div>
+
+      {/* Shift Detail Dialog */}
+      {selectedShift && (
+        <ShiftDetailDialog
+          shift={selectedShift}
+          onClose={() => setSelectedShift(null)}
+        />
+      )}
     </div>
   );
 }

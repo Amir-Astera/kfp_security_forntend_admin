@@ -1,49 +1,240 @@
-import {
-  Guard,
-  CreateGuardRequest,
-  UpdateGuardRequest,
-  GuardFilters,
-  PaginatedResponse,
-  Agency,
-  Branch,
-  Checkpoint,
-} from "../types";
-import { readCollection, writeCollection, STORAGE_KEYS } from "../utils/storage";
-import {
-  initialAgencies,
-  initialBranches,
-  initialCheckpoints,
-  initialGuards,
-} from "../data/initialData";
-import { generateId } from "../utils/id";
+import { Guard, CreateGuardRequest, UpdateGuardRequest, GuardFilters, PaginatedResponse } from "../types";
 
 // ============================================
-// STORAGE HELPERS
+// MOCK DATA
 // ============================================
 
-const getGuardsFromStorage = (): Guard[] =>
-  readCollection<Guard>(STORAGE_KEYS.guards, initialGuards);
-
-const saveGuardsToStorage = (guards: Guard[]) =>
-  writeCollection<Guard>(STORAGE_KEYS.guards, guards);
-
-const getAgencyById = (id: string): Agency | undefined =>
-  readCollection<Agency>(STORAGE_KEYS.agencies, initialAgencies).find(
-    (agency) => agency.id === id
-  );
-
-const getBranchById = (id: string): Branch | undefined =>
-  readCollection<Branch>(STORAGE_KEYS.branches, initialBranches).find(
-    (branch) => branch.id === id
-  );
-
-const getCheckpointById = (id: string): Checkpoint | undefined =>
-  readCollection<Checkpoint>(STORAGE_KEYS.checkpoints, initialCheckpoints).find(
-    (checkpoint) => checkpoint.id === id
-  );
+const mockGuards: Guard[] = [
+  {
+    id: "1",
+    fullName: "Сергеев Иван Петрович",
+    iin: "850620301234",
+    birthDate: "20.06.1985",
+    phone: "+7 727 111 2222",
+    email: "sergeev@kzsecurity.kz",
+    agencyId: "1",
+    agencyName: "ТОО «Казахстан Секьюрити»",
+    branchId: "1",
+    branchName: "Алматы - Центральный офис",
+    checkpointId: "1",
+    checkpointName: "КПП-1 (Главный въезд)",
+    shiftType: "day",
+    shiftStart: "08:00",
+    shiftEnd: "20:00",
+    workDays: ["ПН", "ВТ", "СР", "ЧТ", "ПТ"],
+    hireDate: "15.01.2024",
+    status: "active",
+    loginEmail: "sergeev.guard@kfp.kz",
+    visitsCount: 245,
+    lastActivity: "04.11.2024 12:30",
+  },
+  {
+    id: "2",
+    fullName: "Абдуллаев Марат Саматович",
+    iin: "920315401567",
+    birthDate: "15.03.1992",
+    phone: "+7 727 222 3333",
+    email: "abdullaev@kzsecurity.kz",
+    agencyId: "1",
+    agencyName: "ТОО «Казахстан Секьюрити»",
+    branchId: "1",
+    branchName: "Алматы - Центральный офис",
+    checkpointId: "2",
+    checkpointName: "КПП-2 (Грузовой въезд)",
+    shiftType: "day",
+    shiftStart: "06:00",
+    shiftEnd: "18:00",
+    workDays: ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ"],
+    hireDate: "15.01.2024",
+    status: "active",
+    loginEmail: "abdullaev.guard@kfp.kz",
+    visitsCount: 178,
+    lastActivity: "04.11.2024 08:45",
+  },
+  {
+    id: "3",
+    fullName: "Турсунов Бахтияр Нурланович",
+    iin: "880910501890",
+    birthDate: "10.09.1988",
+    phone: "+7 727 333 4444",
+    agencyId: "1",
+    agencyName: "ТОО «Казахстан Секьюрити»",
+    branchId: "1",
+    branchName: "Алматы - Центральный офис",
+    checkpointId: "4",
+    checkpointName: "КПП-4 (Универсальный)",
+    shiftType: "night",
+    shiftStart: "20:00",
+    shiftEnd: "08:00",
+    workDays: ["ПН", "ВТ", "СР", "ЧТ", "ПТ"],
+    hireDate: "20.01.2024",
+    status: "active",
+    loginEmail: "tursunov.guard@kfp.kz",
+    visitsCount: 134,
+    lastActivity: "04.11.2024 11:45",
+  },
+  {
+    id: "4",
+    fullName: "Жумагулов Ерлан Асхатович",
+    iin: "950203601234",
+    birthDate: "03.02.1995",
+    phone: "+7 727 444 5555",
+    email: "zhumagulov@kzsecurity.kz",
+    agencyId: "1",
+    agencyName: "ТОО «Казахстан Секьюрити»",
+    branchId: "1",
+    branchName: "Алматы - Центральный офис",
+    checkpointId: "3",
+    checkpointName: "КПП-3 (Выезд)",
+    shiftType: "day",
+    shiftStart: "08:00",
+    shiftEnd: "20:00",
+    workDays: ["СБ", "ВС"],
+    hireDate: "20.01.2024",
+    status: "active",
+    loginEmail: "zhumagulov.guard@kfp.kz",
+    visitsCount: 89,
+    lastActivity: "03.11.2024 19:45",
+  },
+  {
+    id: "5",
+    fullName: "Петров Александр Иванович",
+    iin: "870825302345",
+    birthDate: "25.08.1987",
+    phone: "+7 717 555 6666",
+    agencyId: "1",
+    agencyName: "ТОО «Казахстан Секьюрити»",
+    branchId: "2",
+    branchName: "Астана - Северный",
+    checkpointId: "5",
+    checkpointName: "КПП-1 (Главный)",
+    shiftType: "day",
+    shiftStart: "08:00",
+    shiftEnd: "20:00",
+    workDays: ["ПН", "ВТ", "СР", "ЧТ", "ПТ"],
+    hireDate: "20.02.2024",
+    status: "active",
+    loginEmail: "petrov.guard@kfp.kz",
+    visitsCount: 156,
+    lastActivity: "04.11.2024 10:20",
+  },
+  {
+    id: "6",
+    fullName: "Каримов Азамат Ерланович",
+    iin: "930512401456",
+    birthDate: "12.05.1993",
+    phone: "+7 717 666 7777",
+    email: "karimov@kzsecurity.kz",
+    agencyId: "1",
+    agencyName: "ТОО «Казахстан Секьюрити»",
+    branchId: "2",
+    branchName: "Астана - Северный",
+    checkpointId: "6",
+    checkpointName: "КПП-2 (Грузовой)",
+    shiftType: "day",
+    shiftStart: "06:00",
+    shiftEnd: "18:00",
+    workDays: ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ"],
+    hireDate: "20.02.2024",
+    status: "vacation",
+    loginEmail: "karimov.guard@kfp.kz",
+    visitsCount: 98,
+    lastActivity: "28.10.2024 17:30",
+  },
+  {
+    id: "7",
+    fullName: "Ким Сергей Викторович",
+    iin: "900914501678",
+    birthDate: "14.09.1990",
+    phone: "+7 725 777 8888",
+    agencyId: "2",
+    agencyName: "ТОО «Альфа-Охрана»",
+    branchId: "3",
+    branchName: "Шымкент - Южный филиал",
+    checkpointId: "7",
+    checkpointName: "КПП-1",
+    shiftType: "day",
+    shiftStart: "08:00",
+    shiftEnd: "20:00",
+    workDays: ["ПН", "ВТ", "СР", "ЧТ", "ПТ"],
+    hireDate: "10.03.2024",
+    status: "active",
+    loginEmail: "kim.guard@kfp.kz",
+    visitsCount: 112,
+    lastActivity: "04.11.2024 07:30",
+  },
+  {
+    id: "8",
+    fullName: "Нурланов Бауыржан Серикович",
+    iin: "880620601890",
+    birthDate: "20.06.1988",
+    phone: "+7 725 888 9999",
+    email: "nurlanov@alfaguard.kz",
+    agencyId: "2",
+    agencyName: "ТОО «Альфа-Охрана»",
+    branchId: "3",
+    branchName: "Шымкент - Южный филиал",
+    checkpointId: "7",
+    checkpointName: "КПП-1",
+    shiftType: "night",
+    shiftStart: "20:00",
+    shiftEnd: "08:00",
+    workDays: ["ПН", "ВТ", "СР", "ЧТ", "ПТ"],
+    hireDate: "10.03.2024",
+    status: "active",
+    loginEmail: "nurlanov.guard@kfp.kz",
+    visitsCount: 67,
+    lastActivity: "03.11.2024 23:15",
+  },
+  {
+    id: "9",
+    fullName: "Смирнов Владимир Андреевич",
+    iin: "920203702345",
+    birthDate: "03.02.1992",
+    phone: "+7 721 999 0000",
+    agencyId: "3",
+    agencyName: "АО «БезопасностьПлюс»",
+    branchId: "4",
+    branchName: "Караганда - Промышленный",
+    checkpointId: "8",
+    checkpointName: "КПП-1",
+    shiftType: "day",
+    shiftStart: "08:00",
+    shiftEnd: "20:00",
+    workDays: ["ПН", "СР", "ПТ"],
+    hireDate: "05.04.2024",
+    status: "inactive",
+    loginEmail: "smirnov.guard@kfp.kz",
+    visitsCount: 0,
+    lastActivity: "15.10.2024 15:00",
+  },
+  {
+    id: "10",
+    fullName: "Жанабаев Ержан Болатович",
+    iin: "850512301456",
+    birthDate: "12.05.1985",
+    phone: "+7 713 101 2020",
+    email: "zhanabayev@securityplus.kz",
+    agencyId: "3",
+    agencyName: "АО «БезопасностьПлюс»",
+    branchId: "5",
+    branchName: "Актобе - Западный",
+    checkpointId: "10",
+    checkpointName: "КПП-2",
+    shiftType: "day",
+    shiftStart: "06:00",
+    shiftEnd: "18:00",
+    workDays: ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ"],
+    hireDate: "25.04.2024",
+    status: "active",
+    loginEmail: "zhanabayev.guard@kfp.kz",
+    visitsCount: 78,
+    lastActivity: "04.11.2024 11:00",
+  },
+];
 
 // ============================================
-// API FUNCTIONS
+// API FUNCTIONS (MOCK IMPLEMENTATION)
 // ============================================
 
 /**
@@ -56,7 +247,7 @@ export async function getGuards(
 ): Promise<PaginatedResponse<Guard>> {
   await new Promise((resolve) => setTimeout(resolve, 300));
 
-  let filteredGuards = [...getGuardsFromStorage()];
+  let filteredGuards = [...mockGuards];
 
   // Применяем фильтры
   if (filters) {
@@ -123,7 +314,7 @@ export async function getGuards(
  */
 export async function getGuardById(id: string): Promise<Guard | null> {
   await new Promise((resolve) => setTimeout(resolve, 200));
-  return getGuardsFromStorage().find((guard) => guard.id === id) || null;
+  return mockGuards.find((guard) => guard.id === id) || null;
 }
 
 /**
@@ -132,24 +323,18 @@ export async function getGuardById(id: string): Promise<Guard | null> {
 export async function createGuard(data: CreateGuardRequest): Promise<Guard> {
   await new Promise((resolve) => setTimeout(resolve, 500));
 
-  const guards = getGuardsFromStorage();
-  const agency = getAgencyById(data.agencyId);
-  const branch = getBranchById(data.branchId);
-  const checkpoint = getCheckpointById(data.checkpointId);
-
   const newGuard: Guard = {
-    id: generateId("guard"),
+    id: String(mockGuards.length + 1),
     ...data,
-    agencyName: agency?.name ?? "—",
-    branchName: branch?.name ?? "—",
-    checkpointName: checkpoint?.name ?? "—",
+    agencyName: "Название агентства",
+    branchName: "Название филиала",
+    checkpointName: "Название КПП",
     status: "active",
     visitsCount: 0,
     hireDate: new Date().toLocaleDateString("ru-RU"),
   };
 
-  guards.push(newGuard);
-  saveGuardsToStorage(guards);
+  mockGuards.push(newGuard);
   return newGuard;
 }
 
@@ -162,35 +347,17 @@ export async function updateGuard(
 ): Promise<Guard> {
   await new Promise((resolve) => setTimeout(resolve, 500));
 
-  const guards = getGuardsFromStorage();
-  const index = guards.findIndex((guard) => guard.id === id);
+  const index = mockGuards.findIndex((guard) => guard.id === id);
   if (index === -1) {
     throw new Error("Guard not found");
   }
 
-  const existing = guards[index];
-  const agency = data.agencyId
-    ? getAgencyById(data.agencyId) ?? { name: existing.agencyName }
-    : undefined;
-  const branch = data.branchId
-    ? getBranchById(data.branchId) ?? { name: existing.branchName }
-    : undefined;
-  const checkpoint = data.checkpointId
-    ? getCheckpointById(data.checkpointId) ?? { name: existing.checkpointName }
-    : undefined;
-
-  const updatedGuard: Guard = {
-    ...existing,
+  mockGuards[index] = {
+    ...mockGuards[index],
     ...data,
-    agencyName: agency ? agency.name : existing.agencyName,
-    branchName: branch ? branch.name : existing.branchName,
-    checkpointName: checkpoint ? checkpoint.name : existing.checkpointName,
   };
 
-  guards[index] = updatedGuard;
-  saveGuardsToStorage(guards);
-
-  return updatedGuard;
+  return mockGuards[index];
 }
 
 /**
@@ -199,10 +366,9 @@ export async function updateGuard(
 export async function deleteGuard(id: string): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 300));
 
-  const guards = getGuardsFromStorage();
-  const filtered = guards.filter((guard) => guard.id !== id);
-  if (filtered.length !== guards.length) {
-    saveGuardsToStorage(filtered);
+  const index = mockGuards.findIndex((guard) => guard.id === id);
+  if (index !== -1) {
+    mockGuards.splice(index, 1);
   }
 }
 
@@ -228,7 +394,7 @@ export async function exportGuards(filters?: GuardFilters): Promise<string> {
 export async function getGuardStats(id: string) {
   await new Promise((resolve) => setTimeout(resolve, 300));
 
-  const guard = getGuardsFromStorage().find((g) => g.id === id);
+  const guard = mockGuards.find((g) => g.id === id);
   if (!guard) return null;
 
   return {

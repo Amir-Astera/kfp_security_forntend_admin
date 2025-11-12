@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useState, useEffect } from "react";
 import { MetricCard } from "./MetricCard";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
@@ -47,135 +47,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { usePersistentCollection } from "../hooks/usePersistentCollection";
-import { STORAGE_KEYS } from "../utils/storage";
-import {
-  initialAgencies,
-  initialBranches,
-  initialCheckpoints,
-  initialGuards,
-} from "../data/initialData";
-import { Agency, Branch, Checkpoint, Guard as GuardType } from "../types";
-
-// Mock data
-const visitsOverTimeData = [
-  { date: "01.11", visits: 145 },
-  { date: "02.11", visits: 167 },
-  { date: "03.11", visits: 142 },
-  { date: "04.11", visits: 189 },
-  { date: "05.11", visits: 201 },
-  { date: "06.11", visits: 178 },
-  { date: "07.11", visits: 195 },
-];
-
-const branchesData = [
-  { name: "Алматы - Центр", visits: 1250 },
-  { name: "Астана - Север", visits: 980 },
-  { name: "Шымкент", visits: 756 },
-  { name: "Караганда", visits: 543 },
-  { name: "Актобе", visits: 421 },
-];
-
-const topCompaniesData = [
-  { name: "ТОО «КазТрансОйл»", visits: 342 },
-  { name: "АО «АрселорМиттал»", visits: 298 },
-  { name: "ТОО «EuroAsia Air»", visits: 267 },
-  { name: "АО «Казахмыс»", visits: 234 },
-  { name: "ТОО «КазМунайГаз»", visits: 201 },
-];
-
-const visitPurposesData = [
-  { name: "Деловая встреча", value: 450, color: "#2563eb" },
-  { name: "Поставка товаров", value: 320, color: "#8b5cf6" },
-  { name: "Обслуживание", value: 280, color: "#06b6d4" },
-  { name: "Прочее", value: 150, color: "#10b981" },
-];
-
-const guestVsTransportData = [
-  { name: "Гости", value: 720, color: "#2563eb" },
-  { name: "Транспорт", value: 480, color: "#8b5cf6" },
-];
-
-const guardActivityData = [
-  { 
-    guard: "Иванов А.", 
-    "08:00": 5, "10:00": 8, "12:00": 12, "14:00": 15, "16:00": 10, "18:00": 7, "20:00": 4 
-  },
-  { 
-    guard: "Петров Б.", 
-    "08:00": 7, "10:00": 10, "12:00": 14, "14:00": 11, "16:00": 9, "18:00": 6, "20:00": 3 
-  },
-  { 
-    guard: "Сидоров В.", 
-    "08:00": 4, "10:00": 6, "12:00": 9, "14:00": 13, "16:00": 11, "18:00": 8, "20:00": 5 
-  },
-  { 
-    guard: "Касымов Н.", 
-    "08:00": 6, "10:00": 9, "12:00": 11, "14:00": 8, "16:00": 7, "18:00": 9, "20:00": 6 
-  },
-  { 
-    guard: "Абдуллаев М.", 
-    "08:00": 3, "10:00": 5, "12:00": 7, "14:00": 10, "16:00": 12, "18:00": 10, "20:00": 8 
-  },
-];
-
-const recentVisits = [
-  {
-    id: 1,
-    time: "04.11.2025 14:23",
-    name: "Иванов Петр Сергеевич",
-    iin: "920315301234",
-    company: "ТОО «КазТрансОйл»",
-    purpose: "Деловая встреча",
-    branch: "Алматы - Центр",
-    checkpoint: "КПП-1 (въезд)",
-    status: "on-site" as const,
-  },
-  {
-    id: 2,
-    time: "04.11.2025 14:15",
-    name: "Смирнова Анна Ивановна",
-    iin: "850722450987",
-    company: "АО «АрселорМиттал»",
-    purpose: "Поставка товаров",
-    branch: "Астана - Север",
-    checkpoint: "КПП-2 (въезд)",
-    status: "left" as const,
-  },
-  {
-    id: 3,
-    time: "04.11.2025 13:47",
-    name: "Касымов Нурлан Бекович",
-    iin: "910503201456",
-    company: "ТОО «EuroAsia Air»",
-    purpose: "Обслуживание",
-    branch: "Алматы - Центр",
-    checkpoint: "КПП-3 (универс.)",
-    status: "on-site" as const,
-  },
-  {
-    id: 4,
-    time: "04.11.2025 13:28",
-    name: "Петрова Елена Викторовна",
-    iin: "880912345678",
-    company: "АО «Казахмыс»",
-    purpose: "Деловая встреча",
-    branch: "Караганда",
-    checkpoint: "КПП-1 (въезд)",
-    status: "left" as const,
-  },
-  {
-    id: 5,
-    time: "04.11.2025 12:55",
-    name: "Абдуллаев Марат Асанович",
-    iin: "750820112233",
-    company: "ТОО «КазМунайГаз»",
-    purpose: "Поставка товаров",
-    branch: "Шымкент",
-    checkpoint: "КПП-2 (въезд)",
-    status: "on-site" as const,
-  },
-];
+import { db } from "../services";
+import type { Branch, Checkpoint, Agency, Guard, Visit } from "../types";
 
 const chartConfig = {
   visits: {
@@ -185,35 +58,140 @@ const chartConfig = {
 };
 
 export function SuperadminDashboard() {
-  const [branches] = usePersistentCollection<Branch>(
-    STORAGE_KEYS.branches,
-    initialBranches
-  );
-  const [checkpoints] = usePersistentCollection<Checkpoint>(
-    STORAGE_KEYS.checkpoints,
-    initialCheckpoints
-  );
-  const [agencies] = usePersistentCollection<Agency>(
-    STORAGE_KEYS.agencies,
-    initialAgencies
-  );
-  const [guards] = usePersistentCollection<GuardType>(
-    STORAGE_KEYS.guards,
-    initialGuards
-  );
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
+  const [agencies, setAgencies] = useState<Agency[]>([]);
+  const [guards, setGuards] = useState<Guard[]>([]);
+  const [visits, setVisits] = useState<Visit[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const activeBranchesCount = useMemo(
-    () => branches.filter((branch) => branch.status === "active").length,
-    [branches]
-  );
-  const activeAgenciesCount = useMemo(
-    () => agencies.filter((agency) => agency.status === "active").length,
-    [agencies]
-  );
-  const activeGuardsCount = useMemo(
-    () => guards.filter((guard) => guard.status === "active").length,
-    [guards]
-  );
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = () => {
+    try {
+      setBranches(db.getBranches());
+      setCheckpoints(db.getCheckpoints());
+      setAgencies(db.getAgencies());
+      setGuards(db.getGuards());
+      setVisits(db.getVisits());
+      setLoading(false);
+    } catch (error) {
+      console.error("Ошибка загрузки данных:", error);
+      setLoading(false);
+    }
+  };
+
+  // Вычисление метрик
+  const activeBranches = branches.filter((b) => b.status === "active").length;
+  const activeCheckpoints = checkpoints.filter((c) => c.status === "active").length;
+  const activeAgencies = agencies.filter((a) => a.status === "active").length;
+  const totalGuards = guards.length;
+  const activeGuards = guards.filter((g) => g.status === "active").length;
+
+  // Визиты
+  const today = new Date().toISOString().split("T")[0];
+  const visitsToday = visits.filter((v) => v.entryDate === today).length;
+  const visitsOnSite = visits.filter((v) => v.status === "on-site").length;
+
+  // Последние визиты (топ 5)
+  const recentVisits = visits
+    .sort((a, b) => {
+      const dateTimeA = `${a.entryDate} ${a.entryTime}`;
+      const dateTimeB = `${b.entryDate} ${b.entryTime}`;
+      return dateTimeB.localeCompare(dateTimeA);
+    })
+    .slice(0, 5);
+
+  // Визиты за последние 7 дней
+  const last7Days = Array.from({ length: 7 }, (_, i) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (6 - i));
+    return date.toISOString().split("T")[0];
+  });
+
+  const visitsOverTimeData = last7Days.map((date) => {
+    const dayVisits = visits.filter((v) => v.entryDate === date).length;
+    const shortDate = new Date(date).toLocaleDateString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+    });
+    return {
+      date: shortDate,
+      visits: dayVisits,
+    };
+  });
+
+  // Распределение по филиалам
+  const branchesData = branches
+    .map((branch) => ({
+      name: branch.name,
+      visits: visits.filter((v) => v.branchId === branch.id).length,
+    }))
+    .sort((a, b) => b.visits - a.visits)
+    .slice(0, 5);
+
+  // Топ компании
+  const companyCounts: { [key: string]: number } = {};
+  visits.forEach((v) => {
+    if (v.company) {
+      companyCounts[v.company] = (companyCounts[v.company] || 0) + 1;
+    }
+  });
+  const topCompaniesData = Object.entries(companyCounts)
+    .map(([name, visits]) => ({ name, visits }))
+    .sort((a, b) => b.visits - a.visits)
+    .slice(0, 5);
+
+  // Цели визитов
+  const purposeCounts: { [key: string]: number } = {};
+  visits.forEach((v) => {
+    if (v.purpose) {
+      purposeCounts[v.purpose] = (purposeCounts[v.purpose] || 0) + 1;
+    }
+  });
+  const visitPurposesData = Object.entries(purposeCounts)
+    .map(([name, value], index) => ({
+      name,
+      value,
+      color: ["#2563eb", "#8b5cf6", "#06b6d4", "#10b981", "#f59e0b"][index % 5],
+    }))
+    .slice(0, 5);
+
+  // Гости vs Транспорт
+  const guestVisits = visits.filter((v) => v.visitType === "guest").length;
+  const transportVisits = visits.filter((v) => v.visitType === "transport").length;
+  const guestVsTransportData = [
+    { name: "Гости", value: guestVisits, color: "#2563eb" },
+    { name: "Транспорт", value: transportVisits, color: "#8b5cf6" },
+  ];
+
+  // Активность охранников (по визитам)
+  const guardActivityData = guards
+    .filter((g) => g.status === "active")
+    .slice(0, 5)
+    .map((guard) => {
+      const guardVisits = visits.filter((v) => v.guardId === guard.id);
+      const activity: any = { guard: guard.fullName };
+      
+      // Подсчет визитов по всем часам с 00:00 по 23:00
+      const timeSlots = Array.from({ length: 24 }, (_, i) => `${i.toString().padStart(2, '0')}:00`);
+      timeSlots.forEach((slot) => {
+        const hour = parseInt(slot.split(":")[0]);
+        const count = guardVisits.filter((v) => {
+          const visitHour = parseInt(v.entryTime.split(" ")[1]?.split(":")[0] || "0");
+          return visitHour === hour;
+        }).length;
+        activity[slot] = count;
+      });
+      
+      return activity;
+    });
+
+  if (loading) {
+    return <div className="text-center py-12 text-muted-foreground">Загрузка...</div>;
+  }
 
   return (
     <div className="space-y-6">
@@ -223,7 +201,7 @@ export function SuperadminDashboard() {
           <div>
             <h2 className="text-foreground mb-1">Агрохолдинг KFP</h2>
             <p className="text-muted-foreground">
-              35 компаний • {branches.length} филиалов • {checkpoints.length} КПП • {agencies.length} охранных агентств
+              35 компаний • 12 филиалов • 37 КПП • 8 охранных агентств
             </p>
           </div>
           <div className="text-right">
@@ -262,26 +240,26 @@ export function SuperadminDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
           title="Филиалы"
-          value={branches.length.toString()}
-          subtitle={`Активных: ${activeBranchesCount}`}
+          value={activeBranches.toString()}
+          subtitle="Активных"
           icon={Building2}
         />
         <MetricCard
           title="КПП"
-          value={checkpoints.length.toString()}
-          subtitle={`В ${branches.length} филиалах`}
+          value={activeCheckpoints.toString()}
+          subtitle={`В ${activeBranches} ${activeBranches === 1 ? 'филиале' : activeBranches > 1 && activeBranches < 5 ? 'филиалах' : 'филиалах'}`}
           icon={MapPin}
         />
         <MetricCard
           title="Агентства"
-          value={agencies.length.toString()}
-          subtitle={`Активных: ${activeAgenciesCount}`}
+          value={activeAgencies.toString()}
+          subtitle="Активных"
           icon={Shield}
         />
         <MetricCard
           title="Охранники"
-          value={guards.length.toString()}
-          subtitle={`На смене: ${activeGuardsCount}`}
+          value={totalGuards.toString()}
+          subtitle={`На смене: ${activeGuards}`}
           icon={Users}
         />
       </div>
@@ -289,19 +267,19 @@ export function SuperadminDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
           title="Визиты за месяц"
-          value="4,234"
+          value={visits.length.toString()}
           trend={{ value: 12.5, isPositive: true }}
           icon={TrendingUp}
         />
         <MetricCard
           title="Визиты сегодня"
-          value="187"
+          value={visitsToday.toString()}
           subtitle="С начала дня"
           icon={TrendingUp}
         />
         <MetricCard
           title="На территории"
-          value="56"
+          value={visitsOnSite.toString()}
           subtitle="В данный момент"
         />
         <MetricCard
@@ -452,27 +430,27 @@ export function SuperadminDashboard() {
           </Select>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[700px]">
+          <table className="w-full min-w-[1800px]">
             <thead>
               <tr>
-                <th className="text-left p-2 text-muted-foreground min-w-[120px]">Охранник</th>
-                {["08:00", "10:00", "12:00", "14:00", "16:00", "18:00", "20:00"].map((time) => (
-                  <th key={time} className="text-center p-2 text-muted-foreground">{time}</th>
+                <th className="text-left p-2 text-muted-foreground min-w-[120px] sticky left-0 bg-background z-10">Охранник</th>
+                {Array.from({ length: 24 }, (_, i) => `${i.toString().padStart(2, '0')}:00`).map((time) => (
+                  <th key={time} className="text-center p-2 text-muted-foreground min-w-[50px]">{time}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {guardActivityData.map((guard, index) => (
                 <tr key={index} className="border-t border-border">
-                  <td className="p-2 text-foreground">{guard.guard}</td>
-                  {["08:00", "10:00", "12:00", "14:00", "16:00", "18:00", "20:00"].map((time) => {
+                  <td className="p-2 text-foreground sticky left-0 bg-background z-10">{guard.guard}</td>
+                  {Array.from({ length: 24 }, (_, i) => `${i.toString().padStart(2, '0')}:00`).map((time) => {
                     const value = guard[time as keyof typeof guard] as number;
                     const intensity = Math.min(value / 15, 1);
                     const bgColor = `rgba(37, 99, 235, ${0.1 + intensity * 0.7})`;
                     return (
                       <td key={time} className="p-2 text-center">
                         <div
-                          className="w-12 h-12 mx-auto rounded flex items-center justify-center transition-all hover:scale-110 cursor-pointer"
+                          className="w-10 h-10 mx-auto rounded flex items-center justify-center transition-all hover:scale-110 cursor-pointer"
                           style={{ backgroundColor: bgColor }}
                           title={`${guard.guard}: ${value} визитов в ${time}`}
                         >
@@ -531,7 +509,7 @@ export function SuperadminDashboard() {
             <TableBody>
               {recentVisits.map((visit) => (
                 <TableRow key={visit.id}>
-                  <TableCell>{visit.time}</TableCell>
+                  <TableCell>{visit.entryDate} {visit.entryTime}</TableCell>
                   <TableCell>{visit.name}</TableCell>
                   <TableCell className="text-muted-foreground">{visit.iin}</TableCell>
                   <TableCell>{visit.company}</TableCell>

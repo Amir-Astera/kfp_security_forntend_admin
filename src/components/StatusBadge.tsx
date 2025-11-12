@@ -58,7 +58,10 @@ export function StatusBadge({ status, label, activeLabel, inactiveLabel }: Statu
     },
   };
 
-  const config = configs[status];
+  const config = configs[status] || { 
+    label: label || status, 
+    className: "bg-muted text-muted-foreground border-border" 
+  };
 
   return (
     <Badge variant="outline" className={config.className}>

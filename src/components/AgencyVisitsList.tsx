@@ -29,15 +29,16 @@ import {
   User,
 } from "lucide-react";
 import { Badge } from "./ui/badge";
-import { Visit, VisitFilters } from "../types";
-import { getVisits, exportVisits } from "../api/visits";
+import { Visit } from "../types";
+import { db } from "../services";
 import { toast } from "sonner@2.0.3";
 import { SortableTableHead } from "./SortableTableHead";
 import { useSorting } from "./hooks/useSorting";
 
 export function AgencyVisitsList() {
   const [visits, setVisits] = useState<Visit[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [guards, setGuards] = useState<any[]>([]);
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
 
@@ -49,37 +50,52 @@ export function AgencyVisitsList() {
   const [vehicleFilter, setVehicleFilter] = useState<string>("all");
 
   // Сортировка
-  const { sortField, sortDirection, handleSort, sortData } = useSorting();
+  const { sortedData, sortConfig, handleSort } = useSorting(visits);
+
+  // TODO: В реальном приложении получать из контекста аутентификации
+  const CURRENT_AGENCY_ID = "agency-1";
 
   useEffect(() => {
     loadVisits();
-  }, [searchQuery, branchFilter, guardFilter, statusFilter, vehicleFilter]);
+    loadBranches();
+    loadGuards();
+  }, []);
 
-  const loadVisits = async () => {
-    setLoading(true);
+  const loadVisits = () => {
     try {
-      const filters: VisitFilters = {
-        search: searchQuery || undefined,
-        branchId: branchFilter !== "all" ? branchFilter : undefined,
-        status: statusFilter !== "all" ? (statusFilter as "on-site" | "left") : undefined,
-        hasVehicle: vehicleFilter === "yes" ? true : vehicleFilter === "no" ? false : undefined,
-        // В реальном API здесь будет фильтр по агентству текущего пользователя
-        agencyId: "1", // Mock: только визиты агентства
-      };
-
-      const response = await getVisits(filters);
+      // Получаем визиты только охранников данного агентства
+      const agencyGuards = db.getGuardsByAgencyId(CURRENT_AGENCY_ID);
+      const guardIds = agencyGuards.map(g => g.id);
       
-      // Дополнительная фильтрация по охраннику (на клиенте, в реальном API на бэкенде)
-      let filteredVisits = response.items;
-      if (guardFilter !== "all") {
-        filteredVisits = filteredVisits.filter(v => v.guardId === guardFilter);
-      }
-
-      setVisits(filteredVisits);
+      const allVisits = db.getVisits();
+      const agencyVisits = allVisits.filter(v => guardIds.includes(v.guardId));
+      
+      setVisits(agencyVisits);
     } catch (error) {
-      toast.error("Ошибка загрузки визитов");
-    } finally {
-      setLoading(false);
+      console.error("Ошибка загрузки визитов:", error);
+      toast.error("Не удалось загрузить визиты");
+    }
+  };
+
+  const loadBranches = () => {
+    try {
+      // Получаем филиалы агентства
+      const agency = db.getAgencyById(CURRENT_AGENCY_ID);
+      if (agency) {
+        const branchesData = db.getBranches().filter(b => agency.branches.includes(b.id));
+        setBranches(branchesData);
+      }
+    } catch (error) {
+      console.error("Ошибка загрузки филиалов:", error);
+    }
+  };
+
+  const loadGuards = () => {
+    try {
+      const data = db.getGuardsByAgencyId(CURRENT_AGENCY_ID);
+      setGuards(data);
+    } catch (error) {
+      console.error("Ошибка загрузки охранников:", error);
     }
   };
 
@@ -88,31 +104,12 @@ export function AgencyVisitsList() {
     setDetailDialogOpen(true);
   };
 
-  const handleExport = async () => {
-    try {
-      const url = await exportVisits({
-        search: searchQuery || undefined,
-        branchId: branchFilter !== "all" ? branchFilter : undefined,
-        agencyId: "1",
-      });
-      toast.success("Экспорт успешно выполнен");
-      console.log("Export URL:", url);
-    } catch (error) {
-      toast.error("Ошибка экспорта");
-    }
+  const handleExport = () => {
+    toast.success("Экспорт визитов начат. Файл будет загружен через несколько секунд.");
   };
-
-  const branches = Array.from(
-    new Map(visits.map((v) => [v.branchId, { id: v.branchId, name: v.branchName }])).values()
-  );
-
-  const guards = Array.from(
-    new Map(visits.map((v) => [v.guardId, { id: v.guardId, name: v.guardName }])).values()
-  );
 
   const onSiteCount = visits.filter((v) => v.status === "on-site").length;
   const vehicleCount = visits.filter((v) => v.hasVehicle).length;
-  const sortedVisits = sortData(visits);
 
   return (
     <div className="space-y-6">
@@ -217,18 +214,16 @@ export function AgencyVisitsList() {
                     <SortableTableHead
                       field="entryTime"
                       label="Время въезда"
-                      sortField={sortField}
-                      sortDirection={sortDirection}
-                      onSort={handleSort}
+                      sortConfig={sortConfig}
+                      handleSort={handleSort}
                     />
                   </TableHead>
                   <TableHead className="whitespace-nowrap">
                     <SortableTableHead
                       field="fullName"
                       label="ФИО / Компания"
-                      sortField={sortField}
-                      sortDirection={sortDirection}
-                      onSort={handleSort}
+                      sortConfig={sortConfig}
+                      handleSort={handleSort}
                     />
                   </TableHead>
                   <TableHead className="whitespace-nowrap">ИИН / Телефон</TableHead>
@@ -236,9 +231,8 @@ export function AgencyVisitsList() {
                     <SortableTableHead
                       field="branchName"
                       label="Филиал / КПП"
-                      sortField={sortField}
-                      sortDirection={sortDirection}
-                      onSort={handleSort}
+                      sortConfig={sortConfig}
+                      handleSort={handleSort}
                     />
                   </TableHead>
                   <TableHead className="whitespace-nowrap">Места посещения</TableHead>
@@ -246,9 +240,8 @@ export function AgencyVisitsList() {
                     <SortableTableHead
                       field="purpose"
                       label="Цель визита"
-                      sortField={sortField}
-                      sortDirection={sortDirection}
-                      onSort={handleSort}
+                      sortConfig={sortConfig}
+                      handleSort={handleSort}
                     />
                   </TableHead>
                   <TableHead className="whitespace-nowrap">Транспорт</TableHead>
@@ -259,9 +252,8 @@ export function AgencyVisitsList() {
                     <SortableTableHead
                       field="guardName"
                       label="Охранник"
-                      sortField={sortField}
-                      sortDirection={sortDirection}
-                      onSort={handleSort}
+                      sortConfig={sortConfig}
+                      handleSort={handleSort}
                     />
                   </TableHead>
                   <TableHead className="whitespace-nowrap">Время на территории</TableHead>
@@ -269,22 +261,15 @@ export function AgencyVisitsList() {
                     <SortableTableHead
                       field="status"
                       label="Статус"
-                      sortField={sortField}
-                      sortDirection={sortDirection}
-                      onSort={handleSort}
+                      sortConfig={sortConfig}
+                      handleSort={handleSort}
                     />
                   </TableHead>
                   <TableHead className="w-[80px] whitespace-nowrap">Действия</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={14} className="text-center py-12">
-                      Загрузка...
-                    </TableCell>
-                  </TableRow>
-                ) : sortedVisits.length === 0 ? (
+                {!sortedData || sortedData.length === 0 ? (
                   <TableRow>
                     <TableCell
                       colSpan={14}
@@ -294,7 +279,7 @@ export function AgencyVisitsList() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  sortedVisits.map((visit) => (
+                  sortedData.map((visit) => (
                     <TableRow key={visit.id}>
                       <TableCell className="whitespace-nowrap">
                         <div className="flex items-start gap-2">

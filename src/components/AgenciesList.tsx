@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
+import { Badge } from "./ui/badge";
 import { StatusBadge } from "./StatusBadge";
 import { AgencyFormDialog } from "./AgencyFormDialog";
 import { SortableTableHead } from "./SortableTableHead";
@@ -27,90 +28,95 @@ import {
   Download,
   MoreVertical,
   Edit,
+  BarChart3,
+  KeyRound,
   Ban,
   CheckCircle,
-  KeyRound,
-  BarChart3,
-  Trash2,
 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import { Badge } from "./ui/badge";
-import { Agency, Branch, Guard } from "../types";
-import { usePersistentCollection } from "../hooks/usePersistentCollection";
-import { STORAGE_KEYS } from "../utils/storage";
-import {
-  initialAgencies,
-  initialBranches,
-  initialGuards,
-} from "../data/initialData";
-import { generateId } from "../utils/id";
+import { db } from "../services";
+import { toast } from "sonner";
+import type { Agency } from "../types";
 
 export function AgenciesList() {
-  const [agencies, setAgencies] = usePersistentCollection<Agency>(
-    STORAGE_KEYS.agencies,
-    initialAgencies
-  );
-  const [branches] = usePersistentCollection<Branch>(
-    STORAGE_KEYS.branches,
-    initialBranches
-  );
-  const [guards] = usePersistentCollection<Guard>(
-    STORAGE_KEYS.guards,
-    initialGuards
-  );
+  const [agencies, setAgencies] = useState<Agency[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingAgency, setEditingAgency] = useState<Agency | null>(null);
 
-  const branchNameMap = useMemo(
-    () => new Map(branches.map((branch) => [branch.id, branch.name])),
-    [branches]
-  );
-
-  useEffect(() => {
-    const guardCounts = guards.reduce<Record<string, number>>((acc, guard) => {
-      acc[guard.agencyId] = (acc[guard.agencyId] || 0) + 1;
-      return acc;
-    }, {});
-
-    setAgencies((prev) => {
-      let changed = false;
-      const updated = prev.map((agency) => {
-        const guardCount = guardCounts[agency.id] || 0;
-        const branchNames = agency.branches
-          .map((id) => branchNameMap.get(id))
-          .filter((name): name is string => Boolean(name));
-
-        const branchNamesChanged =
-          branchNames.length !== agency.branchNames.length ||
-          branchNames.some((name, index) => name !== agency.branchNames[index]);
-
-        if (agency.guardsCount !== guardCount || branchNamesChanged) {
-          changed = true;
-          return {
-            ...agency,
-            guardsCount: guardCount,
-            branchNames,
-          };
-        }
-
-        return agency;
-      });
-
-      return changed ? updated : prev;
-    });
-  }, [branchNameMap, guards, setAgencies]);
-
-  // Сортировка
   const { sortField, sortDirection, handleSort, sortData } = useSorting();
 
+  // Загрузка данных
+  const loadAgencies = () => {
+    try {
+      const data = db.getAgencies();
+      setAgencies(data);
+    } catch (error) {
+      console.error("Ошибка загрузки агентств:", error);
+      toast.error("Не удалось загрузить агентства");
+    }
+  };
+
+  useEffect(() => {
+    loadAgencies();
+  }, []);
+
+  const handleCreateOrUpdate = (data: any) => {
+    try {
+      if (editingAgency) {
+        db.updateAgency(editingAgency.id, data);
+        toast.success("Агентство успешно обновлено");
+      } else {
+        db.createAgency(data);
+        toast.success("Агентство успешно создано");
+      }
+      loadAgencies();
+      setIsFormOpen(false);
+      setEditingAgency(null);
+    } catch (error) {
+      console.error("Ошибка сохранения агентства:", error);
+      toast.error("Не удалось сохранить агентство");
+    }
+  };
+
+  const handleEdit = (agency: Agency) => {
+    setEditingAgency(agency);
+    setIsFormOpen(true);
+  };
+
+  const handleToggleStatus = (agency: Agency) => {
+    try {
+      const newStatus = agency.status === "active" ? "inactive" : "active";
+      db.updateAgency(agency.id, { status: newStatus });
+      toast.success(
+        `Агентство ${newStatus === "active" ? "активировано" : "деактивировано"}`
+      );
+      loadAgencies();
+    } catch (error) {
+      console.error("Ошибка изменения статуса:", error);
+      toast.error("Не удалось изменить статус");
+    }
+  };
+
+  const handleResetPassword = (agency: Agency) => {
+    toast.success(
+      `Пароль для ${agency.loginEmail} сброшен. Новый пароль отправлен на email.`
+    );
+  };
+
+  const handleViewStats = (agency: Agency) => {
+    alert(
+      `Статистика для ${agency.name}:\n\nОхранников: ${agency.guardsCount}\nФилиалов: ${agency.branches.length}`
+    );
+  };
+
+  // Фильтрация данных
   const filteredAgencies = agencies.filter((agency) => {
     const matchesSearch =
       agency.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -126,100 +132,6 @@ export function AgenciesList() {
   });
 
   const sortedAgencies = sortData(filteredAgencies);
-  const activeAgenciesCount = useMemo(
-    () => agencies.filter((agency) => agency.status === "active").length,
-    [agencies]
-  );
-  const totalGuardsCount = useMemo(() => guards.length, [guards]);
-
-  const handleCreate = () => {
-    setEditingAgency(null);
-    setIsFormOpen(true);
-  };
-
-  const handleEdit = (agency: Agency) => {
-    setEditingAgency(agency);
-    setIsFormOpen(true);
-  };
-
-  const handleSave = (data: Partial<Agency>) => {
-    if (editingAgency) {
-      setAgencies((prev) =>
-        prev.map((agency) => {
-          if (agency.id !== editingAgency.id) {
-            return agency;
-          }
-
-          const updatedBranches = data.branches ?? agency.branches;
-          const updatedBranchNames = updatedBranches
-            .map((id) => branchNameMap.get(id))
-            .filter((name): name is string => Boolean(name));
-
-          return {
-            ...agency,
-            ...data,
-            branches: updatedBranches,
-            branchNames: updatedBranchNames,
-          };
-        })
-      );
-    } else {
-      const branchIds = data.branches ?? [];
-      const branchNames = branchIds
-        .map((id) => branchNameMap.get(id))
-        .filter((name): name is string => Boolean(name));
-
-      const newAgency: Agency = {
-        id: generateId("agency"),
-        name: data.name ?? "",
-        bin: data.bin ?? "",
-        director: data.director ?? "",
-        phone: data.phone ?? "",
-        email: data.email ?? "",
-        legalAddress: data.legalAddress ?? "",
-        branches: branchIds,
-        branchNames,
-        contractStart: data.contractStart ?? new Date().toLocaleDateString("ru-RU"),
-        contractEnd: data.contractEnd ?? new Date().toLocaleDateString("ru-RU"),
-        loginEmail: data.loginEmail ?? "",
-        status: data.status ?? "active",
-        createdAt: new Date().toLocaleDateString("ru-RU"),
-        guardsCount: 0,
-      };
-
-      setAgencies((prev) => [...prev, newAgency]);
-    }
-    setIsFormOpen(false);
-    setEditingAgency(null);
-  };
-
-  const handleToggleStatus = (agency: Agency) => {
-    setAgencies((prev) =>
-      prev.map((item) =>
-        item.id === agency.id
-          ? { ...item, status: item.status === "active" ? "inactive" : "active" }
-          : item
-      )
-    );
-  };
-
-  const handleResetPassword = (agency: Agency) => {
-    alert(`Пароль для ${agency.name} сброшен. Новый пароль отправлен на ${agency.loginEmail}`);
-  };
-
-  const handleViewStats = (agency: Agency) => {
-    alert(`Статистика для ${agency.name}:\n\nОхранников: ${agency.guardsCount}\nФилиалов: ${agency.branches.length}`);
-  };
-
-  const handleDelete = (agency: Agency) => {
-    if (
-      window.confirm(
-        `Удалить агентство «${agency.name}»? Связанные охранники останутся в системе.`
-      )
-    ) {
-      setAgencies((prev) => prev.filter((item) => item.id !== agency.id));
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -228,8 +140,9 @@ export function AgenciesList() {
         <div>
           <h2 className="text-foreground mb-1">Управление агентствами</h2>
           <p className="text-muted-foreground">
-            Всего агентств: {agencies.length} • Активных: {activeAgenciesCount} •
-            Охранников: {totalGuardsCount}
+            Всего агентств: {agencies.length} • Активных:{" "}
+            {agencies.filter((a) => a.status === "active").length} • Охранников:{" "}
+            {agencies.reduce((sum, a) => sum + a.guardsCount, 0)}
           </p>
         </div>
         <div className="flex gap-3">
@@ -237,7 +150,10 @@ export function AgenciesList() {
             <Download className="w-4 h-4 mr-2" />
             Экспорт .xlsx
           </Button>
-          <Button onClick={handleCreate}>
+          <Button onClick={() => {
+            setEditingAgency(null);
+            setIsFormOpen(true);
+          }}>
             <Plus className="w-4 h-4 mr-2" />
             Добавить агентство
           </Button>
@@ -335,7 +251,7 @@ export function AgenciesList() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sortedAgencies.length === 0 ? (
+              {!sortedAgencies || sortedAgencies.length === 0 ? (
                 <TableRow>
                   <TableCell
                     colSpan={9}
@@ -402,8 +318,9 @@ export function AgenciesList() {
                             <BarChart3 className="w-4 h-4 mr-2" />
                             Статистика
                           </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleResetPassword(agency)}>
+                          <DropdownMenuItem
+                            onClick={() => handleResetPassword(agency)}
+                          >
                             <KeyRound className="w-4 h-4 mr-2" />
                             Сбросить пароль
                           </DropdownMenuItem>
@@ -422,14 +339,6 @@ export function AgenciesList() {
                               </>
                             )}
                           </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={() => handleDelete(agency)}
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Удалить
-                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -442,10 +351,10 @@ export function AgenciesList() {
       </Card>
 
       {/* Pagination */}
-      {filteredAgencies.length > 0 && (
+      {sortedAgencies.length > 0 && (
         <div className="flex items-center justify-between">
           <p className="text-muted-foreground">
-            Показано {filteredAgencies.length} из {agencies.length}
+            Показано {sortedAgencies.length} из {agencies.length}
           </p>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" disabled>
@@ -463,7 +372,7 @@ export function AgenciesList() {
         open={isFormOpen}
         onOpenChange={setIsFormOpen}
         agency={editingAgency}
-        onSave={handleSave}
+        onSave={handleCreateOrUpdate}
       />
     </div>
   );

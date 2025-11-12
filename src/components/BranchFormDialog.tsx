@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { Branch } from "../types";
+import type { Branch } from "../types";
 
 interface BranchFormDialogProps {
   open: boolean;
@@ -40,6 +40,8 @@ interface FormData {
   status: "active" | "inactive";
 }
 
+const cities = ["Астана", "Алматы"];
+
 const regions = [
   "Алматинская область",
   "Акмолинская область",
@@ -56,6 +58,26 @@ const regions = [
   "Северо-Казахстанская область",
   "Туркестанская область",
 ];
+
+// Форматирование телефона
+const formatPhoneNumber = (value: string): string => {
+  // Удаляем все, кроме цифр
+  const digits = value.replace(/\D/g, "");
+  
+  // Берем только первые 11 цифр
+  const limited = digits.slice(0, 11);
+  
+  // Если начинается с 8, заменяем на 7
+  const normalized = limited.startsWith("8") ? "7" + limited.slice(1) : limited;
+  
+  // Форматируем: +7 (XXX) XXX XX XX
+  if (normalized.length === 0) return "";
+  if (normalized.length <= 1) return "+7";
+  if (normalized.length <= 4) return `+7 (${normalized.slice(1)})`;
+  if (normalized.length <= 7) return `+7 (${normalized.slice(1, 4)}) ${normalized.slice(4)}`;
+  if (normalized.length <= 9) return `+7 (${normalized.slice(1, 4)}) ${normalized.slice(4, 7)} ${normalized.slice(7)}`;
+  return `+7 (${normalized.slice(1, 4)}) ${normalized.slice(4, 7)} ${normalized.slice(7, 9)} ${normalized.slice(9, 11)}`;
+};
 
 export function BranchFormDialog({
   open,
@@ -151,11 +173,21 @@ export function BranchFormDialog({
                 <Label htmlFor="city">
                   Город <span className="text-destructive">*</span>
                 </Label>
-                <Input
-                  id="city"
-                  {...register("city", { required: "Город обязателен" })}
-                  placeholder="Алматы"
-                />
+                <Select
+                  value={watch("city")}
+                  onValueChange={(value) => setValue("city", value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Выберите город" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {cities.map((city) => (
+                      <SelectItem key={city} value={city}>
+                        {city}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 {errors.city && (
                   <p className="text-destructive mt-1">{errors.city.message}</p>
                 )}
@@ -269,18 +301,22 @@ export function BranchFormDialog({
                 id="phone"
                 {...register("phone", {
                   required: "Телефон обязателен",
-                  pattern: {
-                    value: /^\+7 \d{3} \d{3} \d{4}$/,
-                    message: "Формат: +7 XXX XXX XXXX",
+                  validate: (value) => {
+                    const digits = value.replace(/\D/g, "");
+                    return digits.length === 11 || "Телефон должен содержать 11 цифр";
                   },
                 })}
-                placeholder="+7 727 250 5000"
+                placeholder="+7 (707) 587 58 50"
+                onChange={(e) => {
+                  const formatted = formatPhoneNumber(e.target.value);
+                  setValue("phone", formatted, { shouldValidate: true });
+                }}
               />
               {errors.phone && (
                 <p className="text-destructive mt-1">{errors.phone.message}</p>
               )}
               <p className="text-muted-foreground mt-1">
-                Формат: +7 XXX XXX XXXX
+                Формат: +7 (XXX) XXX XX XX
               </p>
             </div>
 

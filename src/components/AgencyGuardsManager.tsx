@@ -17,22 +17,31 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { GuardFormDialog } from "./GuardFormDialog";
+import { StatusBadge } from "./StatusBadge";
 import { SortableTableHead } from "./SortableTableHead";
 import { useSorting } from "./hooks/useSorting";
+import { GuardFormDialog } from "./GuardFormDialog";
 import {
-  Search,
   Plus,
+  Search,
+  Download,
+  MoreVertical,
   Edit,
   Trash2,
-  Sun,
-  Moon,
   Ban,
   CheckCircle,
-  Calendar,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Avatar, AvatarFallback } from "./ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,17 +52,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
-import { Guard, GuardFilters } from "../types";
-import { getGuards, updateGuard, deleteGuard } from "../api/guards";
+import { Guard } from "../types";
+import { db } from "../services";
 import { toast } from "sonner@2.0.3";
 
 export function AgencyGuardsManager() {
   const [guards, setGuards] = useState<Guard[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [formDialogOpen, setFormDialogOpen] = useState(false);
-  const [editingGuard, setEditingGuard] = useState<Guard | null>(null);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [guardToDelete, setGuardToDelete] = useState<Guard | null>(null);
+  const [branches, setBranches] = useState<any[]>([]);
 
   // Фильтры
   const [searchQuery, setSearchQuery] = useState("");
@@ -61,89 +66,133 @@ export function AgencyGuardsManager() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [shiftFilter, setShiftFilter] = useState<string>("all");
 
+  // Диалоги
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingGuard, setEditingGuard] = useState<Guard | null>(null);
+  const [deletingGuard, setDeletingGuard] = useState<Guard | null>(null);
+
   // Сортировка
   const { sortField, sortDirection, handleSort, sortData } = useSorting();
 
+  // TODO: В реальном приложении получать из контекста аутентификации
+  const CURRENT_AGENCY_ID = "agency-1";
+
   useEffect(() => {
     loadGuards();
-  }, [searchQuery, branchFilter, statusFilter, shiftFilter]);
+    loadBranches();
+  }, []);
 
-  const loadGuards = async () => {
-    setLoading(true);
+  const loadGuards = () => {
     try {
-      const filters: GuardFilters = {
-        search: searchQuery || undefined,
-        branchId: branchFilter !== "all" ? branchFilter : undefined,
-        status: statusFilter !== "all" ? (statusFilter as any) : undefined,
-        shiftType: shiftFilter !== "all" ? (shiftFilter as any) : undefined,
-        // В реальном приложении здесь будет фильтр по agencyId текущего пользователя
-        agencyId: "1", // Моковое агентство
-      };
-
-      const response = await getGuards(filters);
-      setGuards(response.items);
+      const data = db.getGuardsByAgencyId(CURRENT_AGENCY_ID);
+      setGuards(data);
     } catch (error) {
-      toast.error("Ошибка загрузки охранников");
-    } finally {
-      setLoading(false);
+      console.error("Ошибка загрузки охранников:", error);
+      toast.error("Не удалось загрузить охранников");
     }
   };
 
-  const handleAdd = () => {
-    setEditingGuard(null);
-    setFormDialogOpen(true);
+  const loadBranches = () => {
+    try {
+      // Получаем филиалы агентства
+      const agency = db.getAgencyById(CURRENT_AGENCY_ID);
+      if (agency) {
+        const branchesData = db.getBranches().filter(b => agency.branches.includes(b.id));
+        setBranches(branchesData);
+      }
+    } catch (error) {
+      console.error("Ошибка загрузки филиалов:", error);
+    }
+  };
+
+  const handleCreateOrUpdate = (data: any) => {
+    try {
+      if (editingGuard) {
+        db.updateGuard(editingGuard.id, data);
+        toast.success("Охранник успешно обновлен");
+      } else {
+        // Добавляем agencyId к данным
+        db.createGuard({ ...data, agencyId: CURRENT_AGENCY_ID });
+        toast.success("Охранник успешно создан");
+      }
+      loadGuards();
+      setIsFormOpen(false);
+      setEditingGuard(null);
+    } catch (error) {
+      console.error("Ошибка сохранения охранника:", error);
+      toast.error("Не удалось сохранить охранника");
+    }
   };
 
   const handleEdit = (guard: Guard) => {
     setEditingGuard(guard);
-    setFormDialogOpen(true);
+    setIsFormOpen(true);
   };
 
-  const handleDeleteClick = (guard: Guard) => {
-    setGuardToDelete(guard);
-    setDeleteDialogOpen(true);
+  const handleDelete = (guard: Guard) => {
+    setDeletingGuard(guard);
   };
 
-  const handleDeleteConfirm = async () => {
-    if (!guardToDelete) return;
-
+  const confirmDelete = () => {
+    if (!deletingGuard) return;
+    
     try {
-      await deleteGuard(guardToDelete.id);
-      toast.success(`Охранник ${guardToDelete.fullName} удален`);
-      setDeleteDialogOpen(false);
-      setGuardToDelete(null);
+      db.deleteGuard(deletingGuard.id);
+      toast.success("Охранник удален");
       loadGuards();
     } catch (error) {
-      toast.error("Ошибка удаления охранника");
+      console.error("Ошибка удаления охранника:", error);
+      toast.error("Не удалось удалить охранника");
+    } finally {
+      setDeletingGuard(null);
     }
   };
 
-  const handleToggleStatus = async (guard: Guard) => {
-    const newStatus = guard.status === "active" ? "inactive" : "active";
+  const handleToggleStatus = (guard: Guard) => {
     try {
-      await updateGuard(guard.id, { status: newStatus });
-      toast.success(
-        `Охранник ${newStatus === "active" ? "активирован" : "деактивирован"}`
-      );
+      const newStatus = guard.status === "active" ? "inactive" : "active";
+      db.updateGuard(guard.id, { status: newStatus });
+      toast.success(`Охранник ${newStatus === "active" ? "активирован" : "деактивирован"}`);
       loadGuards();
     } catch (error) {
-      toast.error("Ошибка изменения статуса");
+      console.error("Ошибка изменения статуса:", error);
+      toast.error("Не удалось изменить статус");
     }
   };
 
-  const handleFormSuccess = () => {
-    setFormDialogOpen(false);
-    setEditingGuard(null);
-    loadGuards();
+  const handleExport = () => {
+    toast.success("Экспорт охранников начат. Файл будет загружен через несколько секунд.");
   };
-
-  const branches = Array.from(
-    new Map(guards.map((g) => [g.branchId, { id: g.branchId, name: g.branchName }])).values()
-  );
 
   const activeCount = guards.filter((g) => g.status === "active").length;
   const totalVisits = guards.reduce((sum, g) => sum + g.visitsCount, 0);
-  const sortedGuards = sortData(guards);
+
+  // Фильтрация данных
+  const filteredGuards = guards.filter((guard) => {
+    const matchesSearch =
+      guard.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      guard.iin.includes(searchQuery) ||
+      guard.phone.includes(searchQuery) ||
+      guard.loginEmail.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchesBranch =
+      branchFilter === "all" || guard.branchId === branchFilter;
+
+    const matchesStatus =
+      statusFilter === "all" || guard.status === statusFilter;
+
+    const matchesShift =
+      shiftFilter === "all" || guard.shiftType === shiftFilter;
+
+    return (
+      matchesSearch &&
+      matchesBranch &&
+      matchesStatus &&
+      matchesShift
+    );
+  });
+
+  const sortedGuards = sortData(filteredGuards);
 
   return (
     <div className="space-y-6">
@@ -156,7 +205,7 @@ export function AgencyGuardsManager() {
             {totalVisits}
           </p>
         </div>
-        <Button onClick={handleAdd}>
+        <Button onClick={() => setIsFormOpen(true)}>
           <Plus className="w-4 h-4 mr-2" />
           Добавить охранника
         </Button>
@@ -274,13 +323,7 @@ export function AgencyGuardsManager() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center py-12">
-                    Загрузка...
-                  </TableCell>
-                </TableRow>
-              ) : sortedGuards.length === 0 ? (
+              {!sortedGuards || sortedGuards.length === 0 ? (
                 <TableRow>
                   <TableCell
                     colSpan={8}
@@ -351,26 +394,7 @@ export function AgencyGuardsManager() {
                       {guard.visitsCount}
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={
-                          guard.status === "active"
-                            ? "bg-success/10 text-success border-success/20"
-                            : guard.status === "vacation"
-                            ? "bg-warning/10 text-warning border-warning/20"
-                            : guard.status === "sick"
-                            ? "bg-destructive/10 text-destructive border-destructive/20"
-                            : "bg-muted text-muted-foreground border-border"
-                        }
-                      >
-                        {guard.status === "active"
-                          ? "Активен"
-                          : guard.status === "vacation"
-                          ? "В отпуске"
-                          : guard.status === "sick"
-                          ? "На больничном"
-                          : "Неактивен"}
-                      </Badge>
+                      <StatusBadge status={guard.status} />
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-2">
@@ -395,7 +419,7 @@ export function AgencyGuardsManager() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleDeleteClick(guard)}
+                          onClick={() => handleDelete(guard)}
                         >
                           <Trash2 className="w-4 h-4 text-destructive" />
                         </Button>
@@ -411,27 +435,27 @@ export function AgencyGuardsManager() {
 
       {/* Form Dialog */}
       <GuardFormDialog
-        open={formDialogOpen}
-        onOpenChange={setFormDialogOpen}
+        open={isFormOpen}
+        onOpenChange={setIsFormOpen}
         guard={editingGuard}
-        onSuccess={handleFormSuccess}
+        onSuccess={handleCreateOrUpdate}
       />
 
       {/* Delete Confirmation */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <AlertDialog open={deletingGuard !== null} onOpenChange={setDeletingGuard}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Удалить охранника?</AlertDialogTitle>
             <AlertDialogDescription>
               Вы уверены, что хотите удалить охранника{" "}
-              <span className="font-medium">{guardToDelete?.fullName}</span>?
+              <span className="font-medium">{deletingGuard?.fullName}</span>?
               Это действие нельзя отменить.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Отмена</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleDeleteConfirm}
+              onClick={confirmDelete}
               className="bg-destructive hover:bg-destructive/90"
             >
               Удалить

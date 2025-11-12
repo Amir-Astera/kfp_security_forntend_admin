@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useForm } from "react-hook-form@7.55.0";
+import { useEffect, useState } from "react";
+import { useForm, Controller } from "react-hook-form@7.55.0";
 import {
   Dialog,
   DialogContent,
@@ -19,21 +19,36 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Checkbox } from "./ui/checkbox";
-import { Guard, CreateGuardRequest, Branch, Checkpoint } from "../types";
-import { createGuard, updateGuard } from "../api/guards";
+import { Calendar } from "./ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { Guard } from "../types";
+import { db } from "../services";
 import { toast } from "sonner@2.0.3";
-import { usePersistentCollection } from "../hooks/usePersistentCollection";
-import { STORAGE_KEYS } from "../utils/storage";
-import { initialBranches, initialCheckpoints } from "../data/initialData";
+import { CalendarIcon, Eye, EyeOff } from "lucide-react";
+import { format, parse, isValid } from "date-fns";
+import { ru } from "date-fns/locale";
+import { cn } from "./ui/utils";
 
 interface GuardFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   guard?: Guard | null;
-  onSuccess: () => void;
+  onSuccess: (data: any) => void;
 }
 
-  const weekDays = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"];
+const weekDays = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"];
+
+// Генерация времени с 00:00 до 23:00
+const generateTimeOptions = () => {
+  const times = [];
+  for (let hour = 0; hour < 24; hour++) {
+    const timeStr = `${hour.toString().padStart(2, "0")}:00`;
+    times.push(timeStr);
+  }
+  return times;
+};
+
+const timeOptions = generateTimeOptions();
 
 export function GuardFormDialog({
   open,
@@ -41,24 +56,18 @@ export function GuardFormDialog({
   guard,
   onSuccess,
 }: GuardFormDialogProps) {
-  const [branches] = usePersistentCollection<Branch>(
-    STORAGE_KEYS.branches,
-    initialBranches
-  );
-  const [checkpoints] = usePersistentCollection<Checkpoint>(
-    STORAGE_KEYS.checkpoints,
-    initialCheckpoints
-  );
-  const [loading, setLoading] = useState(false);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [checkpoints, setCheckpoints] = useState<any[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<string>("");
   const [selectedCheckpoint, setSelectedCheckpoint] = useState<string>("");
   const [shiftType, setShiftType] = useState<"day" | "night">("day");
   const [workDays, setWorkDays] = useState<string[]>(["ПН", "ВТ", "СР", "ЧТ", "ПТ"]);
-
-  const branchOptions = useMemo(
-    () => branches.map((branch) => ({ id: branch.id, name: branch.name })),
-    [branches]
-  );
+  const [loading, setLoading] = useState(false);
+  const [birthDate, setBirthDate] = useState<Date | undefined>(undefined);
+  const [shiftStart, setShiftStart] = useState<string>("");
+  const [shiftEnd, setShiftEnd] = useState<string>("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [guardStatus, setGuardStatus] = useState<"active" | "inactive" | "vacation" | "sick">("active");
 
   const {
     register,
@@ -66,34 +75,68 @@ export function GuardFormDialog({
     reset,
     formState: { errors },
     setValue,
-  } = useForm<CreateGuardRequest>();
+    control,
+  } = useForm();
 
+  // Загрузка филиалов и КПП
+  useEffect(() => {
+    try {
+      const branchesData = db.getBranches();
+      setBranches(branchesData);
+
+      const checkpointsData = db.getCheckpoints();
+      setCheckpoints(checkpointsData);
+    } catch (error) {
+      console.error("Ошибка загрузки данных:", error);
+    }
+  }, []);
+
+  // Заполнение формы при редактировании
   useEffect(() => {
     if (guard) {
-      // Заполнить форму данными охранника
       setValue("fullName", guard.fullName);
       setValue("iin", guard.iin);
-      setValue("birthDate", guard.birthDate);
+
+      // Парсинг даты рождения
+      if (guard.birthDate) {
+        try {
+          const parsedDate = parse(guard.birthDate, "dd.MM.yyyy", new Date());
+          setBirthDate(parsedDate);
+          setValue("birthDate", guard.birthDate);
+        } catch (error) {
+          console.error("Ошибка парсинга даты:", error);
+        }
+      }
+
       setValue("phone", guard.phone);
       setValue("email", guard.email || "");
       setValue("loginEmail", guard.loginEmail);
+
+      setShiftStart(guard.shiftStart || "");
+      setShiftEnd(guard.shiftEnd || "");
       setValue("shiftStart", guard.shiftStart);
       setValue("shiftEnd", guard.shiftEnd);
+
       setSelectedBranch(guard.branchId);
       setSelectedCheckpoint(guard.checkpointId);
       setShiftType(guard.shiftType);
       setWorkDays(guard.workDays);
+      setGuardStatus(guard.status || "active");
     } else {
-      // Сброс формы
       reset();
       setSelectedBranch("");
       setSelectedCheckpoint("");
       setShiftType("day");
       setWorkDays(["ПН", "ВТ", "СР", "ЧТ", "ПТ"]);
+      setBirthDate(undefined);
+      setShiftStart("");
+      setShiftEnd("");
+      setShowPassword(false);
+      setGuardStatus("active");
     }
   }, [guard, setValue, reset]);
 
-  const onSubmit = async (data: CreateGuardRequest) => {
+  const onSubmit = (data: any) => {
     if (!selectedBranch) {
       toast.error("Выберите филиал");
       return;
@@ -107,34 +150,17 @@ export function GuardFormDialog({
       return;
     }
 
-    setLoading(true);
+    const guardData = {
+      ...data,
+      branchId: selectedBranch,
+      checkpointId: selectedCheckpoint,
+      shiftType,
+      workDays,
+      hireDate: guard?.hireDate || new Date().toISOString().split("T")[0],
+      status: guardStatus,
+    };
 
-    try {
-      const guardData: CreateGuardRequest = {
-        ...data,
-        agencyId: "1", // В реальном приложении - ID текущего агентства
-        branchId: selectedBranch,
-        checkpointId: selectedCheckpoint,
-        shiftType,
-        workDays,
-      };
-
-      if (guard) {
-        await updateGuard(guard.id, guardData);
-        toast.success("Охранник обновлен");
-      } else {
-        await createGuard(guardData);
-        toast.success("Охранник добавлен");
-      }
-
-      onSuccess();
-    } catch (error) {
-      toast.error(
-        guard ? "Ошибка обновления охранника" : "Ошибка добавления охранника"
-      );
-    } finally {
-      setLoading(false);
-    }
+    onSuccess(guardData);
   };
 
   const toggleWorkDay = (day: string) => {
@@ -143,25 +169,77 @@ export function GuardFormDialog({
     );
   };
 
-  const availableCheckpoints = useMemo(
-    () =>
-      checkpoints.filter((checkpoint) => checkpoint.branchId === selectedBranch),
-    [checkpoints, selectedBranch]
+  const handleDateSelect = (date: Date | undefined) => {
+    setBirthDate(date);
+    if (date) {
+      const formattedDate = format(date, "dd.MM.yyyy", { locale: ru });
+      setValue("birthDate", formattedDate);
+    }
+  };
+
+  const handleDateInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value.replace(/\D/g, ""); // Убираем все кроме цифр
+
+    // Форматируем как DD.MM.YYYY
+    if (value.length >= 2) {
+      value = value.slice(0, 2) + "." + value.slice(2);
+    }
+    if (value.length >= 5) {
+      value = value.slice(0, 5) + "." + value.slice(5);
+    }
+    if (value.length > 10) {
+      value = value.slice(0, 10);
+    }
+
+    setValue("birthDate", value);
+
+    // Пытаемся распарсить дату, если введено 10 символов
+    if (value.length === 10) {
+      try {
+        const parsedDate = parse(value, "dd.MM.yyyy", new Date());
+        if (isValid(parsedDate)) {
+          setBirthDate(parsedDate);
+        }
+      } catch (error) {
+        // Игнорируем ошибки парсинга
+      }
+    }
+  };
+
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value.replace(/\D/g, ""); // Убираем все кроме цифр
+
+    // Всегда начинаем с 7
+    if (!value.startsWith("7")) {
+      value = "7" + value.replace(/^7*/, "");
+    }
+
+    // Ограничиваем до 11 цифр (7 + 10 цифр)
+    if (value.length > 11) {
+      value = value.slice(0, 11);
+    }
+
+    // Форматируем как +7 (XXX) XXX XX XX
+    let formatted = "+7";
+    if (value.length > 1) {
+      formatted += " (" + value.slice(1, 4);
+    }
+    if (value.length >= 5) {
+      formatted += ") " + value.slice(4, 7);
+    }
+    if (value.length >= 8) {
+      formatted += " " + value.slice(7, 9);
+    }
+    if (value.length >= 10) {
+      formatted += " " + value.slice(9, 11);
+    }
+
+    setValue("phone", formatted);
+  };
+
+  const availableCheckpoints = checkpoints.filter(
+    (cp) => cp.branchId === selectedBranch
   );
-
-  useEffect(() => {
-    if (!selectedBranch) {
-      setSelectedCheckpoint("");
-      return;
-    }
-
-    if (
-      selectedCheckpoint &&
-      !availableCheckpoints.some((checkpoint) => checkpoint.id === selectedCheckpoint)
-    ) {
-      setSelectedCheckpoint("");
-    }
-  }, [availableCheckpoints, selectedBranch, selectedCheckpoint]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -222,13 +300,74 @@ export function GuardFormDialog({
 
               <div>
                 <Label htmlFor="birthDate">Дата рождения *</Label>
-                <Input
-                  id="birthDate"
-                  {...register("birthDate", {
-                    required: "Обязательное поле",
-                  })}
-                  placeholder="15.03.1992"
-                />
+                <div className="space-y-2">
+                  <Input
+                    id="birthDate"
+                    {...register("birthDate", {
+                      required: "Обязательное поле",
+                      pattern: {
+                        value: /^\d{2}\.\d{2}\.\d{4}$/,
+                        message: "Формат: ДД.ММ.ГГГГ",
+                      },
+                      validate: (value) => {
+                        if (!value) return true;
+                        
+                        const match = value.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+                        if (!match) return "Формат: ДД.ММ.ГГГГ";
+                        
+                        const day = parseInt(match[1], 10);
+                        const month = parseInt(match[2], 10);
+                        const year = parseInt(match[3], 10);
+                        
+                        // Проверка диапазонов
+                        if (day < 1 || day > 31) return "День должен быть от 01 до 31";
+                        if (month < 1 || month > 12) return "Месяц должен быть от 01 до 12";
+                        if (year < 1900) return "Год должен быть не раньше 1900";
+                        if (year > new Date().getFullYear()) return "Год не может быть в будущем";
+                        
+                        // Проверка валидности даты
+                        const date = new Date(year, month - 1, day);
+                        if (
+                          date.getDate() !== day ||
+                          date.getMonth() !== month - 1 ||
+                          date.getFullYear() !== year
+                        ) {
+                          return "Некорректная дата";
+                        }
+                        
+                        return true;
+                      },
+                    })}
+                    placeholder="ДД.ММ.ГГГГ"
+                    onChange={handleDateInputChange}
+                    maxLength={10}
+                  />
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        Выбрать из календаря
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={birthDate}
+                        onSelect={handleDateSelect}
+                        locale={ru}
+                        captionLayout="dropdown-buttons"
+                        fromYear={1900}
+                        toYear={new Date().getFullYear()}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
                 {errors.birthDate && (
                   <p className="text-destructive text-sm mt-1">
                     {errors.birthDate.message}
@@ -244,6 +383,7 @@ export function GuardFormDialog({
                     required: "Обязательное поле",
                   })}
                   placeholder="+7 727 123 4567"
+                  onChange={handlePhoneChange}
                 />
                 {errors.phone && (
                   <p className="text-destructive text-sm mt-1">
@@ -276,7 +416,7 @@ export function GuardFormDialog({
                     <SelectValue placeholder="Выберите филиал" />
                   </SelectTrigger>
                   <SelectContent>
-                    {branchOptions.map((branch) => (
+                    {branches.map((branch) => (
                       <SelectItem key={branch.id} value={branch.id}>
                         {branch.name}
                       </SelectItem>
@@ -330,12 +470,30 @@ export function GuardFormDialog({
 
               <div>
                 <Label htmlFor="shiftStart">Начало смены *</Label>
-                <Input
-                  id="shiftStart"
-                  {...register("shiftStart", {
-                    required: "Обязательное поле",
-                  })}
-                  placeholder="08:00"
+                <Controller
+                  name="shiftStart"
+                  control={control}
+                  rules={{ required: "Обязательное поле" }}
+                  render={({ field }) => (
+                    <Select
+                      value={field.value}
+                      onValueChange={(value) => {
+                        field.onChange(value);
+                        setShiftStart(value);
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Выберите время" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {timeOptions.map((time) => (
+                          <SelectItem key={time} value={time}>
+                            {time}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 />
                 {errors.shiftStart && (
                   <p className="text-destructive text-sm mt-1">
@@ -346,12 +504,30 @@ export function GuardFormDialog({
 
               <div>
                 <Label htmlFor="shiftEnd">Конец смены *</Label>
-                <Input
-                  id="shiftEnd"
-                  {...register("shiftEnd", {
-                    required: "Обязательное поле",
-                  })}
-                  placeholder="20:00"
+                <Controller
+                  name="shiftEnd"
+                  control={control}
+                  rules={{ required: "Обязательное поле" }}
+                  render={({ field }) => (
+                    <Select
+                      value={field.value}
+                      onValueChange={(value) => {
+                        field.onChange(value);
+                        setShiftEnd(value);
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Выберите время" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {timeOptions.map((time) => (
+                          <SelectItem key={time} value={time}>
+                            {time}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 />
                 {errors.shiftEnd && (
                   <p className="text-destructive text-sm mt-1">
@@ -381,34 +557,102 @@ export function GuardFormDialog({
             </div>
           </div>
 
+          {/* Status - only when editing */}
+          {guard && (
+            <div className="space-y-4">
+              <h3 className="text-foreground">Статус охранника</h3>
+              <div>
+                <Label>Статус *</Label>
+                <Select
+                  value={guardStatus}
+                  onValueChange={(value: "active" | "inactive" | "vacation" | "sick") => setGuardStatus(value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Активен</SelectItem>
+                    <SelectItem value="inactive">Неактивен</SelectItem>
+                    <SelectItem value="vacation">В отпуске</SelectItem>
+                    <SelectItem value="sick">На больничном</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-muted-foreground text-sm mt-1">
+                  Измените статус для управления доступом и отображением охранника
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Login Info */}
           <div className="space-y-4">
             <h3 className="text-foreground">Данные для входа</h3>
 
-            <div>
-              <Label htmlFor="loginEmail">Email для входа *</Label>
-              <Input
-                id="loginEmail"
-                type="email"
-                {...register("loginEmail", {
-                  required: "Обязательное поле",
-                  pattern: {
-                    value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-                    message: "Некорректный email",
-                  },
-                })}
-                placeholder="guard@kfp.kz"
-              />
-              {errors.loginEmail && (
-                <p className="text-destructive text-sm mt-1">
-                  {errors.loginEmail.message}
-                </p>
-              )}
-              <p className="text-muted-foreground text-sm mt-1">
-                {guard
-                  ? "При сохранении пароль не изменится"
-                  : "Пароль будет сгенерирован автоматически и отправлен на email"}
-              </p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="loginEmail">Email для входа *</Label>
+                <Input
+                  id="loginEmail"
+                  type="email"
+                  {...register("loginEmail", {
+                    required: "Обязательное поле",
+                    pattern: {
+                      value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+                      message: "Некорректный email",
+                    },
+                  })}
+                  placeholder="guard@kfp.kz"
+                />
+                {errors.loginEmail && (
+                  <p className="text-destructive text-sm mt-1">
+                    {errors.loginEmail.message}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <Label htmlFor="password">
+                  Пароль {!guard && <span className="text-destructive">*</span>}
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    {...register("password", {
+                      required: guard ? false : "Обязательное поле",
+                      minLength: {
+                        value: 6,
+                        message: "Минимум 6 символов",
+                      },
+                    })}
+                    placeholder={
+                      guard ? "Оставьте пустым для сохранения текущего" : "Введите пароль"
+                    }
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+                {errors.password && (
+                  <p className="text-destructive text-sm mt-1">
+                    {errors.password.message}
+                  </p>
+                )}
+                {guard && (
+                  <p className="text-muted-foreground text-sm mt-1">
+                    Оставьте пустым, чтобы не менять пароль
+                  </p>
+                )}
+              </div>
             </div>
           </div>
 

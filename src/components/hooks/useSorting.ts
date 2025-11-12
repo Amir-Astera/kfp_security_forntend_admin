@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 
 type SortDirection = "asc" | "desc" | null;
 
-export function useSorting<T>(initialField: string | null = null) {
-  const [sortField, setSortField] = useState<string | null>(initialField);
+export function useSorting() {
+  const [sortField, setSortField] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
 
-  const handleSort = (field: string) => {
+  const handleSort = useCallback((field: string) => {
     if (sortField === field) {
       // Cycle through: asc -> desc -> null
       if (sortDirection === "asc") {
@@ -14,14 +14,16 @@ export function useSorting<T>(initialField: string | null = null) {
       } else if (sortDirection === "desc") {
         setSortDirection(null);
         setSortField(null);
+      } else {
+        setSortDirection("asc");
       }
     } else {
       setSortField(field);
       setSortDirection("asc");
     }
-  };
+  }, [sortField, sortDirection]);
 
-  const sortData = <T extends Record<string, any>>(data: T[]): T[] => {
+  const sortData = useCallback(<T extends Record<string, any>>(data: T[]): T[] => {
     if (!sortField || !sortDirection) return data;
 
     return [...data].sort((a, b) => {
@@ -40,7 +42,7 @@ export function useSorting<T>(initialField: string | null = null) {
       if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
       return 0;
     });
-  };
+  }, [sortField, sortDirection]);
 
   return {
     sortField,

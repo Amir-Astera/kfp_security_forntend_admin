@@ -52,6 +52,7 @@ export interface Agency {
   contractStart: string;
   contractEnd: string;
   loginEmail: string;
+  password: string;
   status: "active" | "inactive";
   createdAt: string;
   guardsCount: number;
@@ -81,6 +82,7 @@ export interface Guard {
   hireDate: string;
   status: "active" | "inactive" | "vacation" | "sick";
   loginEmail: string;
+  password?: string; // Только для внутреннего использования, не отдавать в API
   visitsCount: number; // Количество зарегистрированных визитов
   lastActivity?: string; // Дата последней активности
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -21,111 +21,65 @@ import { StatusBadge } from "./StatusBadge";
 import { BranchFormDialog } from "./BranchFormDialog";
 import { SortableTableHead } from "./SortableTableHead";
 import { useSorting } from "./hooks/useSorting";
-import {
-  Plus,
-  Search,
-  Download,
+import { 
+  Plus, 
+  Search, 
+  Download, 
   MoreVertical,
   Edit,
   Ban,
-  CheckCircle,
-  Trash2,
+  CheckCircle
 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import { Branch, Checkpoint, Agency } from "../types";
-import { usePersistentCollection } from "../hooks/usePersistentCollection";
-import { STORAGE_KEYS } from "../utils/storage";
-import {
-  initialBranches,
-  initialCheckpoints,
-  initialAgencies,
-} from "../data/initialData";
-import { generateId } from "../utils/id";
+import { db } from "../services";
+import { toast } from "sonner";
+import type { Branch } from "../types";
 
 export function BranchesList() {
-  const [branches, setBranches] = usePersistentCollection<Branch>(
-    STORAGE_KEYS.branches,
-    initialBranches
-  );
-  const [checkpoints, setCheckpoints] = usePersistentCollection<Checkpoint>(
-    STORAGE_KEYS.checkpoints,
-    initialCheckpoints
-  );
-  const [agencies, setAgencies] = usePersistentCollection<Agency>(
-    STORAGE_KEYS.agencies,
-    initialAgencies
-  );
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
 
-  const branchNameMap = useMemo(
-    () => new Map(branches.map((branch) => [branch.id, branch.name])),
-    [branches]
-  );
-
-  // Сортировка
   const { sortField, sortDirection, handleSort, sortData } = useSorting();
 
+  // Загрузка данных из БД
+  const loadBranches = () => {
+    try {
+      const data = db.getBranches();
+      setBranches(data);
+    } catch (error) {
+      console.error('Ошибка загрузки филиалов:', error);
+      toast.error('Не удалось загрузить филиалы');
+    }
+  };
+
   useEffect(() => {
-    const checkpointCounts = checkpoints.reduce<Record<string, number>>(
-      (acc, checkpoint) => {
-        acc[checkpoint.branchId] = (acc[checkpoint.branchId] || 0) + 1;
-        return acc;
-      },
-      {}
-    );
+    loadBranches();
+  }, []);
 
-    setBranches((prev) => {
-      let changed = false;
-      const updated = prev.map((branch) => {
-        const count = checkpointCounts[branch.id] || 0;
-        if (branch.checkpointsCount !== count) {
-          changed = true;
-          return { ...branch, checkpointsCount: count };
-        }
-        return branch;
-      });
-
-      return changed ? updated : prev;
-    });
-  }, [checkpoints, setBranches]);
-
-  const filteredBranches = useMemo(() => {
-    return branches.filter((branch) => {
-      const matchesSearch =
-        branch.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        branch.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        branch.phone.includes(searchQuery) ||
-        branch.email.toLowerCase().includes(searchQuery.toLowerCase());
-
-      const matchesStatus =
-        statusFilter === "all" || branch.status === statusFilter;
-
-      return matchesSearch && matchesStatus;
-    });
-  }, [branches, searchQuery, statusFilter]);
-
-  const sortedBranches = sortData(filteredBranches);
-  const activeBranchesCount = useMemo(
-    () => branches.filter((branch) => branch.status === "active").length,
-    [branches]
-  );
-  const totalCheckpointsCount = useMemo(
-    () => checkpoints.length,
-    [checkpoints]
-  );
-
-  const handleCreate = () => {
-    setEditingBranch(null);
-    setIsFormOpen(true);
+  const handleCreateOrUpdate = (data: any) => {
+    try {
+      if (editingBranch) {
+        db.updateBranch(editingBranch.id, data);
+        toast.success('Филиал успешно обновлен');
+      } else {
+        db.createBranch(data);
+        toast.success('Филиал успешно создан');
+      }
+      loadBranches();
+      setIsFormOpen(false);
+      setEditingBranch(null);
+    } catch (error) {
+      console.error('Ошибка сохранения филиала:', error);
+      toast.error('Не удалось сохранить филиал');
+    }
   };
 
   const handleEdit = (branch: Branch) => {
@@ -133,81 +87,36 @@ export function BranchesList() {
     setIsFormOpen(true);
   };
 
-  const handleSave = (data: Partial<Branch>) => {
-    if (editingBranch) {
-      setBranches((prev) =>
-        prev.map((branch) =>
-          branch.id === editingBranch.id
-            ? {
-                ...branch,
-                ...data,
-              }
-            : branch
-        )
-      );
-    } else {
-      const newBranch: Branch = {
-        id: generateId("branch"),
-        name: data.name ?? "",
-        city: data.city ?? "",
-        region: data.region ?? "",
-        street: data.street ?? "",
-        building: data.building ?? "",
-        latitude: data.latitude || undefined,
-        longitude: data.longitude || undefined,
-        phone: data.phone ?? "",
-        email: data.email ?? "",
-        status: data.status ?? "active",
-        createdAt: new Date().toLocaleDateString("ru-RU"),
-        checkpointsCount: 0,
-      };
-      setBranches((prev) => [...prev, newBranch]);
-    }
-    setIsFormOpen(false);
-    setEditingBranch(null);
-  };
-
   const handleToggleStatus = (branch: Branch) => {
-    setBranches((prev) =>
-      prev.map((item) =>
-        item.id === branch.id
-          ? { ...item, status: item.status === "active" ? "inactive" : "active" }
-          : item
-      )
-    );
+    try {
+      const newStatus = branch.status === 'active' ? 'inactive' : 'active';
+      db.updateBranch(branch.id, { status: newStatus });
+      toast.success(`Филиал ${newStatus === 'active' ? 'активирован' : 'деактивирован'}`);
+      loadBranches();
+    } catch (error) {
+      console.error('Ошибка изменения статуса:', error);
+      toast.error('Не удалось изменить статус');
+    }
   };
 
-  const handleDelete = (branch: Branch) => {
-    if (
-      window.confirm(
-        `Удалить филиал «${branch.name}»? Все связанные КПП будут удалены.`
-      )
-    ) {
-      setBranches((prev) => prev.filter((item) => item.id !== branch.id));
-      setCheckpoints((prev) =>
-        prev.filter((checkpoint) => checkpoint.branchId !== branch.id)
-      );
-      setAgencies((prev) =>
-        prev.map((agency) => {
-          if (!agency.branches.includes(branch.id)) {
-            return agency;
-          }
+  const filteredBranches = branches.filter((branch) => {
+    const matchesSearch = 
+      branch.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      branch.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      branch.phone.includes(searchQuery) ||
+      branch.email.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const matchesStatus = 
+      statusFilter === "all" || branch.status === statusFilter;
+    
+    return matchesSearch && matchesStatus;
+  });
 
-          const updatedBranchIds = agency.branches.filter(
-            (id) => id !== branch.id
-          );
-          const updatedBranchNames = updatedBranchIds
-            .map((id) => branchNameMap.get(id))
-            .filter((name): name is string => Boolean(name));
+  const sortedBranches = sortData(filteredBranches);
 
-          return {
-            ...agency,
-            branches: updatedBranchIds,
-            branchNames: updatedBranchNames,
-          };
-        })
-      );
-    }
+  const handleCreate = () => {
+    setEditingBranch(null);
+    setIsFormOpen(true);
   };
 
   return (
@@ -217,8 +126,7 @@ export function BranchesList() {
         <div>
           <h2 className="text-foreground mb-1">Управление филиалами</h2>
           <p className="text-muted-foreground">
-            Всего филиалов: {branches.length} • Активных: {activeBranchesCount} •
-            КПП: {totalCheckpointsCount}
+            Всего филиалов: {branches.length} • Активных: {branches.filter(b => b.status === "active").length}
           </p>
         </div>
         <div className="flex gap-3">
@@ -226,7 +134,10 @@ export function BranchesList() {
             <Download className="w-4 h-4 mr-2" />
             Экспорт .xlsx
           </Button>
-          <Button onClick={handleCreate}>
+          <Button onClick={() => {
+            setEditingBranch(null);
+            setIsFormOpen(true);
+          }}>
             <Plus className="w-4 h-4 mr-2" />
             Добавить филиал
           </Button>
@@ -314,7 +225,7 @@ export function BranchesList() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sortedBranches.length === 0 ? (
+              {!sortedBranches || sortedBranches.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
                     Филиалы не найдены
@@ -373,14 +284,6 @@ export function BranchesList() {
                               </>
                             )}
                           </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={() => handleDelete(branch)}
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Удалить
-                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -414,7 +317,7 @@ export function BranchesList() {
         open={isFormOpen}
         onOpenChange={setIsFormOpen}
         branch={editingBranch}
-        onSave={handleSave}
+        onSave={handleCreateOrUpdate}
       />
     </div>
   );

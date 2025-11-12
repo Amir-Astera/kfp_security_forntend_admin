@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form@7.55.0";
 import {
   Dialog,
@@ -11,7 +11,6 @@ import {
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Textarea } from "./ui/textarea";
 import {
   Select,
   SelectContent,
@@ -19,16 +18,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { Branch, Checkpoint } from "../types";
-import { usePersistentCollection } from "../hooks/usePersistentCollection";
-import { STORAGE_KEYS } from "../utils/storage";
-import { initialBranches } from "../data/initialData";
+import { Textarea } from "./ui/textarea";
+import { db } from "../services";
+import type { Checkpoint } from "../types";
 
 interface CheckpointFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   checkpoint: Checkpoint | null;
-  onSave: (data: Partial<Checkpoint>) => void;
+  onSave: (data: any) => void;
 }
 
 interface FormData {
@@ -46,14 +44,8 @@ export function CheckpointFormDialog({
   checkpoint,
   onSave,
 }: CheckpointFormDialogProps) {
-  const [storedBranches] = usePersistentCollection<Branch>(
-    STORAGE_KEYS.branches,
-    initialBranches
-  );
-  const branchOptions = useMemo(
-    () => storedBranches.map((branch) => ({ id: branch.id, name: branch.name })),
-    [storedBranches]
-  );
+  const [branches, setBranches] = useState<any[]>([]);
+
   const {
     register,
     handleSubmit,
@@ -71,6 +63,16 @@ export function CheckpointFormDialog({
   const status = watch("status");
   const type = watch("type");
   const branchId = watch("branchId");
+
+  // Загрузка филиалов
+  useEffect(() => {
+    try {
+      const data = db.getBranches();
+      setBranches(data);
+    } catch (error) {
+      console.error("Ошибка загрузки филиалов:", error);
+    }
+  }, []);
 
   useEffect(() => {
     if (checkpoint) {
@@ -95,7 +97,7 @@ export function CheckpointFormDialog({
   }, [checkpoint, reset]);
 
   const onSubmit = (data: FormData) => {
-    const branch = branchOptions.find((b) => b.id === data.branchId);
+    const branch = branches.find((b) => b.id === data.branchId);
     onSave({
       ...data,
       branchName: branch?.name || "",
@@ -143,7 +145,7 @@ export function CheckpointFormDialog({
                 value={branchId}
                 onValueChange={(value) => {
                   setValue("branchId", value);
-                  const branch = branchOptions.find((b) => b.id === value);
+                  const branch = branches.find((b) => b.id === value);
                   if (branch) {
                     setValue("branchName", branch.name);
                   }
@@ -153,7 +155,7 @@ export function CheckpointFormDialog({
                   <SelectValue placeholder="Выберите филиал" />
                 </SelectTrigger>
                 <SelectContent>
-                  {branchOptions.map((branch) => (
+                  {branches.map((branch) => (
                     <SelectItem key={branch.id} value={branch.id}>
                       {branch.name}
                     </SelectItem>
@@ -165,31 +167,6 @@ export function CheckpointFormDialog({
                   {errors.branchId.message}
                 </p>
               )}
-            </div>
-
-            <div>
-              <Label htmlFor="type">
-                Тип КПП <span className="text-destructive">*</span>
-              </Label>
-              <Select
-                value={type}
-                onValueChange={(value) =>
-                  setValue("type", value as "entry" | "exit" | "universal")
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="entry">Въезд</SelectItem>
-                  <SelectItem value="exit">Выезд</SelectItem>
-                  <SelectItem value="universal">Универсальный</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-muted-foreground mt-1">
-                Въезд - только для въезда на территорию, Выезд - только для
-                выезда, Универсальный - для обоих направлений
-              </p>
             </div>
 
             <div>

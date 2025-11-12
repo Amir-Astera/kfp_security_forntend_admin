@@ -4,32 +4,16 @@ import { MetricCard } from "./MetricCard";
 import { Button } from "./ui/button";
 import {
   Users,
-  ClipboardList,
-  TrendingUp,
-  Clock,
   Shield,
   AlertTriangle,
   CheckCircle,
   Calendar,
   Download,
-  Filter,
   Sun,
   Moon,
+  Monitor,
+  Building2,
 } from "lucide-react";
-import {
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-} from "recharts";
 import { Badge } from "./ui/badge";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import { Guard } from "../types";
@@ -48,42 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-
-// Mock данные для агентства
-const mockAgencyStats = {
-  totalGuards: 15,
-  activeGuards: 13,
-  onVacation: 1,
-  onSick: 1,
-  totalVisitsToday: 47,
-  totalVisitsMonth: 1240,
-  avgVisitsPerGuard: 82.7,
-  contractedBranches: 3,
-};
-
-const visitsPerDayData = [
-  { day: "ПН", visits: 52 },
-  { day: "ВТ", visits: 48 },
-  { day: "СР", visits: 55 },
-  { day: "ЧТ", visits: 50 },
-  { day: "ПТ", visits: 47 },
-  { day: "СБ", visits: 35 },
-  { day: "ВС", visits: 30 },
-];
-
-const visitsPerGuardData = [
-  { name: "Сергеев И.П.", visits: 125 },
-  { name: "Абдуллаев М.С.", visits: 98 },
-  { name: "Турсунов Б.Н.", visits: 87 },
-  { name: "Жумагулов Е.А.", visits: 72 },
-  { name: "Петров А.И.", visits: 68 },
-];
-
-const guardsStatusData = [
-  { name: "Активны", value: 13, color: "#10b981" },
-  { name: "В отпуске", value: 1, color: "#f59e0b" },
-  { name: "На больничном", value: 1, color: "#ef4444" },
-];
+import { db } from "../services";
 
 // Данные для таблицы статистики охранников
 interface GuardStats {
@@ -93,132 +42,18 @@ interface GuardStats {
   checkpointName: string;
   shiftType: "day" | "night";
   shiftTime: string;
-  visitsToday: number;
-  visitsMonth: number;
   avgProcessingTime: string;
   lateCount: number;
   actualHours: number;
+  plannedHours: number;
+  hasOvertime: boolean;
+  overtimeHours: number;
   status: "active" | "inactive" | "vacation" | "sick";
 }
 
-const guardsStatsData: GuardStats[] = [
-  {
-    id: "1",
-    fullName: "Сергеев Иван Петрович",
-    branchName: "Алматы - Центр",
-    checkpointName: "КПП-1 (Главный въезд)",
-    shiftType: "day",
-    shiftTime: "08:00-20:00",
-    visitsToday: 12,
-    visitsMonth: 245,
-    avgProcessingTime: "02:15",
-    lateCount: 2,
-    actualHours: 264,
-    status: "active",
-  },
-  {
-    id: "2",
-    fullName: "Абдуллаев Марат Саматович",
-    branchName: "Алматы - Центр",
-    checkpointName: "КПП-2 (Грузовой)",
-    shiftType: "day",
-    shiftTime: "06:00-18:00",
-    visitsToday: 8,
-    visitsMonth: 178,
-    avgProcessingTime: "03:20",
-    lateCount: 0,
-    actualHours: 264,
-    status: "active",
-  },
-  {
-    id: "3",
-    fullName: "Турсунов Бахтияр Нурланович",
-    branchName: "Алматы - Центр",
-    checkpointName: "КПП-4 (Универсальный)",
-    shiftType: "night",
-    shiftTime: "20:00-08:00",
-    visitsToday: 5,
-    visitsMonth: 134,
-    avgProcessingTime: "02:45",
-    lateCount: 1,
-    actualHours: 264,
-    status: "active",
-  },
-  {
-    id: "4",
-    fullName: "Жумагулов Ерлан Асанович",
-    branchName: "Астана - Север",
-    checkpointName: "КПП-1 (Въезд)",
-    shiftType: "day",
-    shiftTime: "08:00-20:00",
-    visitsToday: 10,
-    visitsMonth: 198,
-    avgProcessingTime: "02:30",
-    lateCount: 3,
-    actualHours: 240,
-    status: "active",
-  },
-  {
-    id: "5",
-    fullName: "Петров Андрей Иванович",
-    branchName: "Астана - Север",
-    checkpointName: "КПП-2 (Выезд)",
-    shiftType: "day",
-    shiftTime: "09:00-18:00",
-    visitsToday: 7,
-    visitsMonth: 156,
-    avgProcessingTime: "02:10",
-    lateCount: 0,
-    actualHours: 198,
-    status: "active",
-  },
-  {
-    id: "6",
-    fullName: "Касымов Нурлан Бекович",
-    branchName: "Шымкент",
-    checkpointName: "КПП-1 (Главный)",
-    shiftType: "day",
-    shiftTime: "08:00-17:00",
-    visitsToday: 6,
-    visitsMonth: 142,
-    avgProcessingTime: "03:05",
-    lateCount: 1,
-    actualHours: 198,
-    status: "active",
-  },
-  {
-    id: "7",
-    fullName: "Ибрагимов Руслан Маратович",
-    branchName: "Шымкент",
-    checkpointName: "КПП-2 (Грузовой)",
-    shiftType: "night",
-    shiftTime: "20:00-08:00",
-    visitsToday: 4,
-    visitsMonth: 98,
-    avgProcessingTime: "02:50",
-    lateCount: 0,
-    actualHours: 264,
-    status: "active",
-  },
-  {
-    id: "8",
-    fullName: "Смирнов Дмитрий Олегович",
-    branchName: "Алматы - Центр",
-    checkpointName: "КПП-3 (Офисный)",
-    shiftType: "day",
-    shiftTime: "09:00-18:00",
-    visitsToday: 0,
-    visitsMonth: 0,
-    avgProcessingTime: "00:00",
-    lateCount: 0,
-    actualHours: 0,
-    status: "vacation",
-  },
-];
-
 export function AgencyDashboard() {
-  const [stats, setStats] = useState(mockAgencyStats);
-  const [loading, setLoading] = useState(false);
+  const [guards, setGuards] = useState<Guard[]>([]);
+  const [loading, setLoading] = useState(true);
   
   // Фильтры для таблицы статистики
   const [periodFilter, setPeriodFilter] = useState<string>("month");
@@ -226,9 +61,80 @@ export function AgencyDashboard() {
   const [checkpointFilter, setCheckpointFilter] = useState<string>("all");
 
   useEffect(() => {
-    // В реальном приложении здесь будет загрузка данных из API
-    setLoading(false);
+    loadData();
   }, []);
+
+  const loadData = () => {
+    try {
+      const allGuards = db.getGuards();
+      setGuards(allGuards);
+      setLoading(false);
+    } catch (error) {
+      console.error("Ошибка загрузки данных:", error);
+      setLoading(false);
+    }
+  };
+
+  // Вычисление метрик
+  const totalGuards = guards.length;
+  const activeGuards = guards.filter((g) => g.status === "active").length;
+  const onVacation = guards.filter((g) => g.status === "vacation").length;
+  const onSick = guards.filter((g) => g.status === "sick").length;
+
+  // Получение уникальных филиалов
+  const contractedBranches = new Set(guards.map((g) => g.branchName)).size;
+
+  // Охранники на смене (активные охранники, у которых сейчас рабочее время)
+  const currentTime = new Date();
+  const currentHour = currentTime.getHours();
+  const currentDay = ["ВС", "ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ"][currentTime.getDay()];
+  
+  const onDutyGuards = guards.filter((g) => {
+    if (g.status !== "active") return false;
+    if (!g.workDays.includes(currentDay)) return false;
+    
+    const shiftStartHour = parseInt(g.shiftStart.split(":")[0]);
+    const shiftEndHour = parseInt(g.shiftEnd.split(":")[0]);
+    
+    // Проверяем, попадает ли текущее время в рабочую смену
+    if (shiftStartHour < shiftEndHour) {
+      // Обычная смена (например, 08:00 - 20:00)
+      return currentHour >= shiftStartHour && currentHour < shiftEndHour;
+    } else {
+      // Ночная смена через полночь (например, 20:00 - 08:00)
+      return currentHour >= shiftStartHour || currentHour < shiftEndHour;
+    }
+  }).length;
+
+  // Генерация данных переработок и экранного времени (мок-данные)
+  const overtimeGuards = guards.filter(() => Math.random() > 0.7); // ~30% с переработкой
+  const avgScreenTime = 9.5; // Среднее экранное время в часах
+
+  // Статусы охранников
+  const guardsStatusData = [
+    { name: "Активны", value: activeGuards, color: "#10b981" },
+    { name: "В отпуске", value: onVacation, color: "#f59e0b" },
+    { name: "На больничном", value: onSick, color: "#ef4444" },
+  ].filter(item => item.value > 0);
+
+  // Данные для таблицы статистики охранников
+  const guardsStatsData: GuardStats[] = guards.map((guard) => {
+    return {
+      id: guard.id,
+      fullName: guard.fullName,
+      branchName: guard.branchName,
+      checkpointName: guard.checkpointName,
+      shiftType: guard.shiftType,
+      shiftTime: `${guard.shiftStart} - ${guard.shiftEnd}`,
+      avgProcessingTime: "02:30", // Заглушка
+      lateCount: 0, // Заглушка
+      actualHours: 264, // Заглушка
+      plannedHours: 240, // Заглушка
+      hasOvertime: Math.random() > 0.5, // Заглушка
+      overtimeHours: Math.random() > 0.5 ? 20 : 0, // Заглушка
+      status: guard.status,
+    };
+  });
 
   // Фильтрация данных таблицы
   const filteredGuardsStats = guardsStatsData.filter((guard) => {
@@ -242,6 +148,10 @@ export function AgencyDashboard() {
   const checkpoints = branchFilter === "all"
     ? Array.from(new Set(guardsStatsData.map((g) => g.checkpointName)))
     : Array.from(new Set(guardsStatsData.filter((g) => g.branchName === branchFilter).map((g) => g.checkpointName)));
+
+  if (loading) {
+    return <div className="text-center py-12 text-muted-foreground">Загрузка...</div>;
+  }
 
   return (
     <div className="space-y-6">
@@ -257,186 +167,197 @@ export function AgencyDashboard() {
       <div className="grid grid-cols-4 gap-4">
         <MetricCard
           title="Всего охранников"
-          value={stats.totalGuards}
+          value={totalGuards}
           icon={Users}
           trend="+2 за месяц"
           iconClassName="text-primary"
         />
         <MetricCard
           title="Активных"
-          value={stats.activeGuards}
+          value={activeGuards}
           icon={CheckCircle}
           iconClassName="text-success"
         />
         <MetricCard
-          title="Визитов сегодня"
-          value={stats.totalVisitsToday}
-          icon={ClipboardList}
-          trend="+12% к вчера"
-          iconClassName="text-info"
+          title="Филиалов"
+          value={contractedBranches}
+          subtitle="по контракту"
+          icon={Building2}
+          iconClassName="text-primary"
         />
         <MetricCard
-          title="Визитов за месяц"
-          value={stats.totalVisitsMonth}
-          icon={TrendingUp}
-          trend="+8.5% к прошлому"
-          iconClassName="text-success"
+          title="В отпуске"
+          value={onVacation}
+          icon={Calendar}
+          iconClassName="text-warning"
         />
       </div>
 
       {/* Second Row Metrics */}
       <div className="grid grid-cols-4 gap-4">
         <MetricCard
-          title="Средняя нагрузка"
-          value={`${stats.avgVisitsPerGuard}`}
-          subtitle="визитов на охранника"
-          icon={BarChart}
-          iconClassName="text-warning"
-        />
-        <MetricCard
-          title="Филиалов"
-          value={stats.contractedBranches}
-          subtitle="по контракту"
-          icon={Shield}
-          iconClassName="text-primary"
-        />
-        <MetricCard
-          title="В отпуске"
-          value={stats.onVacation}
-          icon={Calendar}
-          iconClassName="text-warning"
-        />
-        <MetricCard
           title="На больничном"
-          value={stats.onSick}
+          value={onSick}
           icon={AlertTriangle}
           iconClassName="text-destructive"
         />
+        <MetricCard
+          title="Переработки"
+          value={overtimeGuards.length}
+          subtitle="охранников"
+          icon={Monitor}
+          iconClassName="text-warning"
+        />
+        <MetricCard
+          title="Экранное время"
+          value={`${avgScreenTime}ч`}
+          subtitle="среднее за сегодня"
+          icon={Monitor}
+          iconClassName="text-info"
+        />
+        <MetricCard
+          title="На смене"
+          value={onDutyGuards}
+          subtitle="сейчас работают"
+          icon={Shield}
+          iconClassName="text-success"
+        />
       </div>
 
-      {/* Charts Row */}
+      {/* Charts Row - информация про охранников */}
       <div className="grid grid-cols-3 gap-6">
-        {/* Visits per day */}
-        <Card className="col-span-2 p-6">
+        {/* Экранное время охранников */}
+        <Card className="p-6">
           <h3 className="text-foreground mb-4 flex items-center gap-2">
-            <Clock className="w-5 h-5 text-primary" />
-            Визиты по дням недели
+            <Monitor className="w-5 h-5 text-primary" />
+            Экранное время
           </h3>
-          <div className="h-[250px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={visitsPerDayData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis
-                  dataKey="day"
-                  stroke="hsl(var(--muted-foreground))"
-                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
-                  tickLine={{ stroke: "hsl(var(--border))" }}
-                />
-                <YAxis
-                  stroke="hsl(var(--muted-foreground))"
-                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
-                  tickLine={{ stroke: "hsl(var(--border))" }}
-                  width={40}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "hsl(var(--card))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: "6px",
-                    color: "hsl(var(--foreground))",
-                  }}
-                  labelStyle={{ color: "hsl(var(--foreground))" }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="visits"
-                  name="Визиты"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  dot={{ fill: "#3b82f6", r: 4 }}
-                  activeDot={{ r: 6 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+          <div className="space-y-4">
+            <div className="text-center py-4">
+              <div className="text-foreground mb-1">{avgScreenTime} часов</div>
+              <p className="text-muted-foreground">Среднее за сегодня</p>
+            </div>
+            <div className="space-y-2">
+              {guards.slice(0, 5).map((guard) => {
+                const screenTime = 8 + Math.random() * 4; // 8-12 часов
+                return (
+                  <div key={guard.id} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Avatar className="h-8 w-8">
+                        <AvatarFallback>
+                          {guard.fullName.split(" ").map((n) => n[0]).join("").substring(0, 2)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="text-muted-foreground">{guard.fullName.split(" ")[0]}</span>
+                    </div>
+                    <span className="text-foreground">{screenTime.toFixed(1)}ч</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </Card>
 
-        {/* Guards Status */}
+        {/* Переработки */}
+        <Card className="p-6">
+          <h3 className="text-foreground mb-4 flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-warning" />
+            Переработки
+          </h3>
+          <div className="space-y-4">
+            <div className="text-center py-4">
+              <div className="text-foreground mb-1">{overtimeGuards.length}</div>
+              <p className="text-muted-foreground">Охранников с переработкой</p>
+            </div>
+            <div className="space-y-2">
+              {overtimeGuards.slice(0, 5).map((guard) => {
+                const overtime = 30 + Math.floor(Math.random() * 90); // 30-120 минут
+                return (
+                  <div key={guard.id} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Avatar className="h-8 w-8">
+                        <AvatarFallback>
+                          {guard.fullName.split(" ").map((n) => n[0]).join("").substring(0, 2)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="text-muted-foreground">{guard.fullName.split(" ")[0]}</span>
+                    </div>
+                    <span className="text-warning">+{overtime}м</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </Card>
+
+        {/* Статусы охранников */}
         <Card className="p-6">
           <h3 className="text-foreground mb-4 flex items-center gap-2">
             <Users className="w-5 h-5 text-primary" />
             Статусы охранников
           </h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <PieChart>
-              <Pie
-                data={guardsStatusData}
-                cx="50%"
-                cy="50%"
-                innerRadius={60}
-                outerRadius={90}
-                paddingAngle={5}
-                dataKey="value"
-              >
-                {guardsStatusData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "hsl(var(--card))",
-                  border: "1px solid hsl(var(--border))",
-                  borderRadius: "6px",
-                }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="mt-4 space-y-2">
-            {guardsStatusData.map((item, index) => (
-              <div key={index} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: item.color }}
-                  />
-                  <span className="text-muted-foreground">{item.name}</span>
-                </div>
-                <span className="text-foreground">{item.value}</span>
+          {totalGuards > 0 ? (
+            <div className="space-y-6">
+              {/* Circular progress bars */}
+              <div className="flex items-center justify-center gap-8 py-4">
+                {guardsStatusData.map((item, index) => {
+                  const percentage = totalGuards > 0 ? (item.value / totalGuards) * 100 : 0;
+                  return (
+                    <div key={index} className="flex flex-col items-center gap-2">
+                      <div className="relative w-20 h-20">
+                        <svg className="w-20 h-20 transform -rotate-90">
+                          <circle
+                            cx="40"
+                            cy="40"
+                            r="32"
+                            stroke="hsl(var(--muted))"
+                            strokeWidth="6"
+                            fill="none"
+                          />
+                          <circle
+                            cx="40"
+                            cy="40"
+                            r="32"
+                            stroke={item.color}
+                            strokeWidth="6"
+                            fill="none"
+                            strokeDasharray={`${percentage * 2.01} 201`}
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <span className="text-foreground">{item.value}</span>
+                        </div>
+                      </div>
+                      <span className="text-muted-foreground text-center text-xs">{item.name}</span>
+                    </div>
+                  );
+                })}
               </div>
-            ))}
-          </div>
+              
+              {/* Legend */}
+              <div className="space-y-2 border-t pt-4">
+                {guardsStatusData.map((item, index) => (
+                  <div key={index} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-3 h-3 rounded-full"
+                        style={{ backgroundColor: item.color }}
+                      />
+                      <span className="text-muted-foreground">{item.name}</span>
+                    </div>
+                    <span className="text-foreground">{item.value}</span>
+                  </div>
+                ))  }
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-[250px] text-muted-foreground">
+              Нет данных для отображения
+            </div>
+          )}
         </Card>
       </div>
-
-      {/* Performance Chart */}
-      <Card className="p-6">
-        <h3 className="text-foreground mb-4 flex items-center gap-2">
-          <TrendingUp className="w-5 h-5 text-primary" />
-          Топ охранников по визитам (месяц)
-        </h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={visitsPerGuardData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-            <XAxis
-              dataKey="name"
-              stroke="hsl(var(--muted-foreground))"
-              tick={{ fill: "hsl(var(--muted-foreground))" }}
-            />
-            <YAxis
-              stroke="hsl(var(--muted-foreground))"
-              tick={{ fill: "hsl(var(--muted-foreground))" }}
-            />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: "hsl(var(--card))",
-                border: "1px solid hsl(var(--border))",
-                borderRadius: "6px",
-              }}
-            />
-            <Bar dataKey="visits" fill="#3b82f6" radius={[8, 8, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </Card>
 
       {/* Guards Statistics Table */}
       <Card className="p-6">
@@ -496,11 +417,11 @@ export function AgencyDashboard() {
                 <TableHead>ФИО охранника</TableHead>
                 <TableHead>Филиал / КПП</TableHead>
                 <TableHead>Смена</TableHead>
-                <TableHead className="text-center">Обработано за сегодня</TableHead>
-                <TableHead className="text-center">Обработано за месяц</TableHead>
                 <TableHead className="text-center">Среднее время обработки</TableHead>
                 <TableHead className="text-center">Опозданий</TableHead>
                 <TableHead className="text-center">Фактических часов</TableHead>
+                <TableHead className="text-center">Плановых часов</TableHead>
+                <TableHead className="text-center">Переработка</TableHead>
                 <TableHead>Статус</TableHead>
               </TableRow>
             </TableHeader>
@@ -548,12 +469,6 @@ export function AgencyDashboard() {
                       </div>
                     </TableCell>
                     <TableCell className="text-center">
-                      <span className="text-foreground">{guard.visitsToday}</span>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <span className="text-foreground">{guard.visitsMonth}</span>
-                    </TableCell>
-                    <TableCell className="text-center">
                       <span className="text-muted-foreground">{guard.avgProcessingTime}</span>
                     </TableCell>
                     <TableCell className="text-center">
@@ -572,6 +487,26 @@ export function AgencyDashboard() {
                     </TableCell>
                     <TableCell className="text-center">
                       <span className="text-foreground">{guard.actualHours}ч</span>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <span className="text-foreground">{guard.plannedHours}ч</span>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {guard.hasOvertime ? (
+                        <Badge
+                          variant="outline"
+                          className="bg-warning/10 text-warning border-warning/20"
+                        >
+                          +{guard.overtimeHours}ч
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className="bg-success/10 text-success border-success/20"
+                        >
+                          0ч
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge
