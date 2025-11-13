@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { toast } from "sonner@2.0.3";
+import { toast } from "sonner";
 import { db } from "../services";
 import { Camera, RotateCw, X, CheckCircle, AlertCircle } from "lucide-react";
 import type { Guard } from "../types";
@@ -34,10 +34,9 @@ export function ShiftHandoverDialog({
   currentGuard,
   onSuccess,
 }: ShiftHandoverDialogProps) {
-  const [step, setStep] = useState<"select" | "currentPhoto" | "newGuardPhoto" | "confirm">("select");
+  const [step, setStep] = useState<"select" | "newGuardPhoto" | "confirm">("select");
   const [selectedGuard, setSelectedGuard] = useState<string>("");
   const [isCameraActive, setIsCameraActive] = useState(false);
-  const [currentGuardPhoto, setCurrentGuardPhoto] = useState<string | null>(null);
   const [newGuardPhoto, setNewGuardPhoto] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -64,17 +63,39 @@ export function ShiftHandoverDialog({
         throw new Error("Ваш браузер не поддерживает доступ к камере");
       }
 
+      if (streamRef.current) {
+        if (videoRef.current && videoRef.current.srcObject !== streamRef.current) {
+          videoRef.current.srcObject = streamRef.current;
+          try {
+            await videoRef.current.play();
+          } catch (e) {
+            // Игнорируем ошибку запуска воспроизведения
+          }
+        }
+
+        setIsCameraActive(true);
+        return;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user", width: 1280, height: 720 },
         audio: false,
       });
 
+      streamRef.current = stream;
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        streamRef.current = stream;
-        setIsCameraActive(true);
-        setCameraError(null);
+
+        try {
+          await videoRef.current.play();
+        } catch (e) {
+          // Игнорируем ошибку запуска воспроизведения
+        }
       }
+
+      setIsCameraActive(true);
+      setCameraError(null);
     } catch (error: any) {
       // Обрабатываем ошибку камеры без вывода в console.error
       let errorMessage = "Не удалось получить доступ к камере";
@@ -104,6 +125,10 @@ export function ShiftHandoverDialog({
       streamRef.current = null;
       setIsCameraActive(false);
     }
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
   };
 
   // Сделать фото
@@ -117,11 +142,7 @@ export function ShiftHandoverDialog({
       if (ctx) {
         ctx.drawImage(videoRef.current, 0, 0);
         const photoData = canvas.toDataURL("image/jpeg", 0.9);
-        if (step === "currentPhoto") {
-          setCurrentGuardPhoto(photoData);
-        } else if (step === "newGuardPhoto") {
-          setNewGuardPhoto(photoData);
-        }
+        setNewGuardPhoto(photoData);
         stopCamera();
         setStep("confirm");
       }
@@ -132,12 +153,11 @@ export function ShiftHandoverDialog({
   const retakePhoto = () => {
     setNewGuardPhoto(null);
     setStep("newGuardPhoto");
-    startCamera();
   };
 
   // Подтвердить передачу смены
   const confirmHandover = async () => {
-    if (!selectedGuard || !currentGuardPhoto || !newGuardPhoto) {
+    if (!selectedGuard || !newGuardPhoto) {
       toast.error("Выберите охранника и сделайте фото");
       return;
     }
@@ -192,8 +212,34 @@ export function ShiftHandoverDialog({
     }
 
     setStep("newGuardPhoto");
-    startCamera();
   };
+
+  useEffect(() => {
+    if (open && step === "newGuardPhoto") {
+      startCamera();
+    } else {
+      stopCamera();
+    }
+  }, [open, step]);
+
+  useEffect(() => {
+    if (
+      open &&
+      step === "newGuardPhoto" &&
+      isCameraActive &&
+      videoRef.current &&
+      streamRef.current &&
+      videoRef.current.srcObject !== streamRef.current
+    ) {
+      videoRef.current.srcObject = streamRef.current;
+      const playPromise = videoRef.current.play();
+      if (playPromise) {
+        playPromise.catch(() => {
+          // Игнорируем ошибку запуска воспроизведения
+        });
+      }
+    }
+  }, [open, step, isCameraActive]);
 
   // Очистка при закрытии
   useEffect(() => {
@@ -201,7 +247,6 @@ export function ShiftHandoverDialog({
       stopCamera();
       setStep("select");
       setSelectedGuard("");
-      setCurrentGuardPhoto(null);
       setNewGuardPhoto(null);
       setCameraError(null);
     }
@@ -223,7 +268,6 @@ export function ShiftHandoverDialog({
           <DialogTitle>Передача смены</DialogTitle>
           <DialogDescription>
             {step === "select" && "Выберите охранника, который заступает на смену"}
-            {step === "currentPhoto" && "Сфотографируйте текущего охранника"}
             {step === "newGuardPhoto" && "Сфотографируйте заступающего охранника"}
             {step === "confirm" && "Подтвердите передачу смены"}
           </DialogDescription>
