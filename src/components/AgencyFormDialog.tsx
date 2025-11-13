@@ -21,14 +21,13 @@ import {
 } from "./ui/select";
 import { Checkbox } from "./ui/checkbox";
 import { Card } from "./ui/card";
-import { ScrollArea } from "./ui/scroll-area";
 import { Calendar } from "./ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, Eye, EyeOff } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
-import { db } from "../services";
 import type { Agency } from "../types";
+import type { BranchApiResponse } from "../api/branches";
 
 // Форматирование телефона
 const formatPhoneNumber = (value: string): string => {
@@ -55,6 +54,7 @@ interface AgencyFormDialogProps {
   onOpenChange: (open: boolean) => void;
   agency: Agency | null;
   onSave: (data: any) => void;
+  branches: BranchApiResponse[];
 }
 
 interface FormData {
@@ -77,8 +77,9 @@ export function AgencyFormDialog({
   onOpenChange,
   agency,
   onSave,
+  branches,
 }: AgencyFormDialogProps) {
-  const [branches, setBranches] = useState<any[]>([]);
+  const [showPassword, setShowPassword] = useState(false);
 
   const {
     register,
@@ -98,16 +99,6 @@ export function AgencyFormDialog({
   const isEditing = Boolean(agency);
   const status = watch("status");
   const selectedBranches = watch("branches") || [];
-
-  // Загрузка филиалов
-  useEffect(() => {
-    try {
-      const data = db.getBranches();
-      setBranches(data);
-    } catch (error) {
-      console.error("Ошибка загрузки филиалов:", error);
-    }
-  }, []);
 
   useEffect(() => {
     if (agency) {
@@ -142,6 +133,12 @@ export function AgencyFormDialog({
       });
     }
   }, [agency, reset]);
+
+  useEffect(() => {
+    if (!open) {
+      setShowPassword(false);
+    }
+  }, [open]);
 
   const onSubmit = (data: FormData) => {
     // Get branch names
@@ -334,24 +331,30 @@ export function AgencyFormDialog({
                 </div>
                 <Card className="p-4">
                   <div className="space-y-3">
-                    {branches.map((branch) => (
-                      <div key={branch.id} className="flex items-center space-x-3">
-                        <Checkbox
-                          id={`branch-${branch.id}`}
-                          checked={selectedBranches.includes(branch.id)}
-                          onCheckedChange={() => toggleBranch(branch.id)}
-                        />
-                        <Label
-                          htmlFor={`branch-${branch.id}`}
-                          className="cursor-pointer flex-1"
-                        >
-                          {branch.name}
-                        </Label>
-                      </div>
-                    ))}
+                    {branches.length > 0 ? (
+                      branches.map((branch) => (
+                        <div key={branch.id} className="flex items-center space-x-3">
+                          <Checkbox
+                            id={`branch-${branch.id}`}
+                            checked={selectedBranches.includes(branch.id)}
+                            onCheckedChange={() => toggleBranch(branch.id)}
+                          />
+                          <Label
+                            htmlFor={`branch-${branch.id}`}
+                            className="cursor-pointer flex-1"
+                          >
+                            {branch.name}
+                          </Label>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-muted-foreground">
+                        Нет доступных филиалов
+                      </p>
+                    )}
                   </div>
                 </Card>
-                {selectedBranches.length === 0 && (
+                {selectedBranches.length === 0 && branches.length > 0 && (
                   <p className="text-destructive">
                     Выберите хотя бы один филиал
                   </p>
@@ -475,21 +478,36 @@ export function AgencyFormDialog({
                   <Label htmlFor="password">
                     Пароль <span className="text-destructive">*</span>
                   </Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    {...register("password", {
-                      ...(isEditing
-                        ? {}
-                        : { required: "Пароль обязателен" }),
-                      minLength: { value: 6, message: "Минимум 6 символов" },
-                    })}
-                    placeholder={
-                      isEditing
-                        ? "Оставьте пустым, чтобы не менять пароль"
-                        : "Введите пароль"
-                    }
-                  />
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      {...register("password", {
+                        ...(isEditing
+                          ? {}
+                          : { required: "Пароль обязателен" }),
+                        minLength: { value: 6, message: "Минимум 6 символов" },
+                      })}
+                      placeholder={
+                        isEditing
+                          ? "Оставьте пустым, чтобы не менять пароль"
+                          : "Введите пароль"
+                      }
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted-foreground"
+                      aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
                   {errors.password && (
                     <p className="text-destructive mt-1">
                       {errors.password.message}

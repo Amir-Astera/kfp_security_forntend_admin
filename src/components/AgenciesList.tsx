@@ -39,7 +39,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import { db } from "../services";
 import { toast } from "sonner";
 import {
   fetchAgencies,
@@ -47,6 +46,7 @@ import {
   updateAgency as updateAgencyRequest,
 } from "../api/agencies";
 import { getBranches } from "../api/branches";
+import type { BranchApiResponse } from "../api/branches";
 import type {
   Agency,
   AuthResponse,
@@ -67,6 +67,7 @@ export function AgenciesList({ authTokens }: AgenciesListProps) {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [availableBranches, setAvailableBranches] = useState<BranchApiResponse[]>([]);
 
   const page = 0;
   const pageSize = 25;
@@ -106,24 +107,14 @@ export function AgenciesList({ authTokens }: AgenciesListProps) {
     []
   );
 
-  const loadAgenciesFromDb = useCallback(() => {
-    try {
-      const data = db.getAgencies();
-      setAgencies(data);
-      setTotal(data.length);
-    } catch (error) {
-      console.error("Ошибка загрузки агентств из локальной базы:", error);
-      toast.error("Не удалось загрузить агентства");
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
   const loadAgencies = useCallback(async () => {
     setIsLoading(true);
 
     if (!authTokens?.accessToken) {
-      loadAgenciesFromDb();
+      setAgencies([]);
+      setTotal(0);
+      setAvailableBranches([]);
+      setIsLoading(false);
       return;
     }
 
@@ -147,14 +138,11 @@ export function AgenciesList({ authTokens }: AgenciesListProps) {
           ? branchesResponse.items
           : [];
         branchNames = new Map(branchItems.map((branch) => [branch.id, branch.name]));
+        setAvailableBranches(branchItems);
       } catch (error) {
         console.error("Ошибка получения названий филиалов:", error);
-        try {
-          const branches = db.getBranches ? db.getBranches() : [];
-          branchNames = new Map(branches.map((branch) => [branch.id, branch.name]));
-        } catch (fallbackError) {
-          console.error("Ошибка получения филиалов из локальной базы:", fallbackError);
-        }
+        setAvailableBranches([]);
+        toast.error("Не удалось загрузить список филиалов");
       }
 
       const response = await fetchAgencies(
@@ -181,14 +169,12 @@ export function AgenciesList({ authTokens }: AgenciesListProps) {
       const message =
         error instanceof Error ? error.message : "Не удалось загрузить агентства";
       toast.error(message);
-      loadAgenciesFromDb();
     } finally {
       setIsLoading(false);
     }
   }, [
     authTokens,
     debouncedSearch,
-    loadAgenciesFromDb,
     mapAgencyFromApi,
     page,
     pageSize,
@@ -211,21 +197,7 @@ export function AgenciesList({ authTokens }: AgenciesListProps) {
 
   const handleCreateOrUpdate = async (data: any) => {
     if (!authTokens?.accessToken) {
-      try {
-        if (editingAgency) {
-          db.updateAgency(editingAgency.id, data);
-          toast.success("Агентство успешно обновлено");
-        } else {
-          db.createAgency(data);
-          toast.success("Агентство успешно создано");
-        }
-        setIsFormOpen(false);
-        setEditingAgency(null);
-        loadAgenciesFromDb();
-      } catch (error) {
-        console.error("Ошибка сохранения агентства в локальной базе:", error);
-        toast.error("Не удалось сохранить агентство");
-      }
+      toast.error("Недостаточно прав для сохранения агентства");
       return;
     }
 
@@ -263,15 +235,6 @@ export function AgenciesList({ authTokens }: AgenciesListProps) {
           }
         );
 
-        try {
-          db.updateAgency(editingAgency.id, {
-            ...data,
-            status: data.status,
-          });
-        } catch (error) {
-          console.warn("Не удалось обновить локальную базу агентств", error);
-        }
-
         toast.success("Агентство успешно обновлено");
       } else {
         await createAgencyRequest(
@@ -284,15 +247,6 @@ export function AgenciesList({ authTokens }: AgenciesListProps) {
             tokenType: authTokens.tokenType,
           }
         );
-
-        try {
-          db.createAgency({
-            ...data,
-            status: data.status,
-          });
-        } catch (error) {
-          console.warn("Не удалось синхронизировать локальную базу агентств", error);
-        }
 
         toast.success("Агентство успешно создано");
       }
@@ -317,18 +271,7 @@ export function AgenciesList({ authTokens }: AgenciesListProps) {
     const shouldActivate = agency.status !== "active";
 
     if (!authTokens?.accessToken) {
-      try {
-        db.updateAgency(agency.id, {
-          status: shouldActivate ? "active" : "inactive",
-        });
-        toast.success(
-          `Агентство ${shouldActivate ? "активировано" : "деактивировано"}`
-        );
-        loadAgenciesFromDb();
-      } catch (error) {
-        console.error("Ошибка изменения статуса в локальной базе:", error);
-        toast.error("Не удалось изменить статус");
-      }
+      toast.error("Недостаточно прав для изменения статуса агентства");
       return;
     }
 
@@ -344,14 +287,6 @@ export function AgenciesList({ authTokens }: AgenciesListProps) {
           tokenType: authTokens.tokenType,
         }
       );
-
-      try {
-        db.updateAgency(agency.id, {
-          status: shouldActivate ? "active" : "inactive",
-        });
-      } catch (error) {
-        console.warn("Не удалось обновить локальный статус агентства", error);
-      }
 
       toast.success(
         `Агентство ${shouldActivate ? "активировано" : "деактивировано"}`
@@ -647,6 +582,7 @@ export function AgenciesList({ authTokens }: AgenciesListProps) {
         onOpenChange={setIsFormOpen}
         agency={editingAgency}
         onSave={handleCreateOrUpdate}
+        branches={availableBranches}
       />
     </div>
   );
