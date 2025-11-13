@@ -170,9 +170,9 @@ export default function App() {
         case "checkpoints":
           return <CheckpointsList />;
         case "agencies":
-          return <AgenciesList />;
+          return <AgenciesList authTokens={authTokens} />;
         case "guards":
-          return <GuardsList />;
+          return <GuardsList authTokens={authTokens} />;
         case "visits":
           return <VisitsList />;
         case "schedule":

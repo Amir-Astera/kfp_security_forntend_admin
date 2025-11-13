@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -41,47 +41,257 @@ import {
 } from "./ui/dropdown-menu";
 import { db } from "../services";
 import { toast } from "sonner";
-import type { Agency } from "../types";
+import {
+  fetchAgencies,
+  createAgency as createAgencyRequest,
+  updateAgency as updateAgencyRequest,
+} from "../api/agencies";
+import type {
+  Agency,
+  AuthResponse,
+  AgencyApiItem,
+  UpdateAgencyRequest,
+} from "../types";
 
-export function AgenciesList() {
+interface AgenciesListProps {
+  authTokens: AuthResponse | null;
+}
+
+export function AgenciesList({ authTokens }: AgenciesListProps) {
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingAgency, setEditingAgency] = useState<Agency | null>(null);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [total, setTotal] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const page = 0;
+  const pageSize = 25;
 
   const { sortField, sortDirection, handleSort, sortData } = useSorting();
 
-  // Загрузка данных
-  const loadAgencies = () => {
+  const mapAgencyFromApi = useCallback(
+    (agency: AgencyApiItem, branchNames: Map<string, string>): Agency => {
+      const branchIds = Array.isArray(agency.attachedBranchIds)
+        ? agency.attachedBranchIds
+        : [];
+      const branchNameList = branchIds.map(
+        (id) => branchNames.get(id) ?? id
+      );
+
+      return {
+        id: agency.id,
+        name: agency.name,
+        bin: agency.bin,
+        director: agency.directorFullName ?? "",
+        phone: agency.phone ?? "",
+        email: agency.email ?? "",
+        legalAddress: agency.legalAddress ?? "",
+        branches: branchIds,
+        branchNames: branchNameList,
+        contractStart: agency.contractStart ?? "",
+        contractEnd: agency.contractEnd ?? "",
+        loginEmail: agency.loginEmail ?? "",
+        password: "",
+        status: agency.active ? "active" : "inactive",
+        createdAt: agency.createdAt ?? "",
+        guardsCount: agency.guardsCount ?? 0,
+        version: agency.version,
+        active: agency.active,
+      };
+    },
+    []
+  );
+
+  const loadAgenciesFromDb = useCallback(() => {
     try {
       const data = db.getAgencies();
       setAgencies(data);
+      setTotal(data.length);
+    } catch (error) {
+      console.error("Ошибка загрузки агентств из локальной базы:", error);
+      toast.error("Не удалось загрузить агентства");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const loadAgencies = useCallback(async () => {
+    setIsLoading(true);
+
+    if (!authTokens?.accessToken) {
+      loadAgenciesFromDb();
+      return;
+    }
+
+    try {
+      const statusParam =
+        statusFilter === "all"
+          ? undefined
+          : statusFilter === "active"
+          ? true
+          : statusFilter === "inactive"
+          ? false
+          : undefined;
+
+      let branchNames = new Map<string, string>();
+      try {
+        const branches = db.getBranches ? db.getBranches() : [];
+        branchNames = new Map(branches.map((branch) => [branch.id, branch.name]));
+      } catch (error) {
+        console.error("Ошибка получения названий филиалов:", error);
+      }
+
+      const response = await fetchAgencies(
+        {
+          page,
+          size: pageSize,
+          q: debouncedSearch || undefined,
+          active: statusParam,
+        },
+        {
+          accessToken: authTokens.accessToken,
+          tokenType: authTokens.tokenType,
+        }
+      );
+
+      const mapped = Array.isArray(response.items)
+        ? response.items.map((item) => mapAgencyFromApi(item, branchNames))
+        : [];
+
+      setAgencies(mapped);
+      setTotal(response.total ?? mapped.length);
     } catch (error) {
       console.error("Ошибка загрузки агентств:", error);
-      toast.error("Не удалось загрузить агентства");
+      const message =
+        error instanceof Error ? error.message : "Не удалось загрузить агентства";
+      toast.error(message);
+      loadAgenciesFromDb();
+    } finally {
+      setIsLoading(false);
     }
-  };
+  }, [
+    authTokens,
+    debouncedSearch,
+    loadAgenciesFromDb,
+    mapAgencyFromApi,
+    page,
+    pageSize,
+    statusFilter,
+  ]);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim());
+    }, 400);
+
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
 
   useEffect(() => {
     loadAgencies();
-  }, []);
+  }, [loadAgencies]);
 
-  const handleCreateOrUpdate = (data: any) => {
+  const sanitizePhoneNumber = (value: string) => value.replace(/[^+\d]/g, "");
+
+  const handleCreateOrUpdate = async (data: any) => {
+    if (!authTokens?.accessToken) {
+      try {
+        if (editingAgency) {
+          db.updateAgency(editingAgency.id, data);
+          toast.success("Агентство успешно обновлено");
+        } else {
+          db.createAgency(data);
+          toast.success("Агентство успешно создано");
+        }
+        setIsFormOpen(false);
+        setEditingAgency(null);
+        loadAgenciesFromDb();
+      } catch (error) {
+        console.error("Ошибка сохранения агентства в локальной базе:", error);
+        toast.error("Не удалось сохранить агентство");
+      }
+      return;
+    }
+
     try {
+      const commonPayload = {
+        name: data.name,
+        bin: data.bin,
+        directorFullName: data.director,
+        legalAddress: data.legalAddress,
+        phone: sanitizePhoneNumber(data.phone),
+        email: data.email,
+        attachedBranchIds: Array.isArray(data.branches) ? data.branches : [],
+        contractStart: data.contractStart,
+        contractEnd: data.contractEnd,
+        loginEmail: data.loginEmail,
+        active: data.status === "active",
+      };
+
       if (editingAgency) {
-        db.updateAgency(editingAgency.id, data);
+        const payload: UpdateAgencyRequest = {
+          ...commonPayload,
+          version: editingAgency.version ?? 0,
+        };
+
+        if (data.password) {
+          payload.newLoginPassword = data.password;
+        }
+
+        await updateAgencyRequest(
+          editingAgency.id,
+          payload,
+          {
+            accessToken: authTokens.accessToken,
+            tokenType: authTokens.tokenType,
+          }
+        );
+
+        try {
+          db.updateAgency(editingAgency.id, {
+            ...data,
+            status: data.status,
+          });
+        } catch (error) {
+          console.warn("Не удалось обновить локальную базу агентств", error);
+        }
+
         toast.success("Агентство успешно обновлено");
       } else {
-        db.createAgency(data);
+        await createAgencyRequest(
+          {
+            ...commonPayload,
+            loginPassword: data.password,
+          },
+          {
+            accessToken: authTokens.accessToken,
+            tokenType: authTokens.tokenType,
+          }
+        );
+
+        try {
+          db.createAgency({
+            ...data,
+            status: data.status,
+          });
+        } catch (error) {
+          console.warn("Не удалось синхронизировать локальную базу агентств", error);
+        }
+
         toast.success("Агентство успешно создано");
       }
-      loadAgencies();
+
       setIsFormOpen(false);
       setEditingAgency(null);
+      await loadAgencies();
     } catch (error) {
       console.error("Ошибка сохранения агентства:", error);
-      toast.error("Не удалось сохранить агентство");
+      const message =
+        error instanceof Error ? error.message : "Не удалось сохранить агентство";
+      toast.error(message);
     }
   };
 
@@ -90,17 +300,55 @@ export function AgenciesList() {
     setIsFormOpen(true);
   };
 
-  const handleToggleStatus = (agency: Agency) => {
+  const handleToggleStatus = async (agency: Agency) => {
+    const shouldActivate = agency.status !== "active";
+
+    if (!authTokens?.accessToken) {
+      try {
+        db.updateAgency(agency.id, {
+          status: shouldActivate ? "active" : "inactive",
+        });
+        toast.success(
+          `Агентство ${shouldActivate ? "активировано" : "деактивировано"}`
+        );
+        loadAgenciesFromDb();
+      } catch (error) {
+        console.error("Ошибка изменения статуса в локальной базе:", error);
+        toast.error("Не удалось изменить статус");
+      }
+      return;
+    }
+
     try {
-      const newStatus = agency.status === "active" ? "inactive" : "active";
-      db.updateAgency(agency.id, { status: newStatus });
-      toast.success(
-        `Агентство ${newStatus === "active" ? "активировано" : "деактивировано"}`
+      await updateAgencyRequest(
+        agency.id,
+        {
+          active: shouldActivate,
+          version: agency.version ?? 0,
+        },
+        {
+          accessToken: authTokens.accessToken,
+          tokenType: authTokens.tokenType,
+        }
       );
-      loadAgencies();
+
+      try {
+        db.updateAgency(agency.id, {
+          status: shouldActivate ? "active" : "inactive",
+        });
+      } catch (error) {
+        console.warn("Не удалось обновить локальный статус агентства", error);
+      }
+
+      toast.success(
+        `Агентство ${shouldActivate ? "активировано" : "деактивировано"}`
+      );
+      await loadAgencies();
     } catch (error) {
-      console.error("Ошибка изменения статуса:", error);
-      toast.error("Не удалось изменить статус");
+      console.error("Ошибка изменения статуса агентства:", error);
+      const message =
+        error instanceof Error ? error.message : "Не удалось изменить статус";
+      toast.error(message);
     }
   };
 
@@ -132,6 +380,11 @@ export function AgenciesList() {
   });
 
   const sortedAgencies = sortData(filteredAgencies);
+  const activeOnPage = agencies.filter((a) => a.status === "active").length;
+  const guardsOnPage = agencies.reduce(
+    (sum, agency) => sum + (agency.guardsCount ?? 0),
+    0
+  );
 
   return (
     <div className="space-y-6">
@@ -140,9 +393,8 @@ export function AgenciesList() {
         <div>
           <h2 className="text-foreground mb-1">Управление агентствами</h2>
           <p className="text-muted-foreground">
-            Всего агентств: {agencies.length} • Активных:{" "}
-            {agencies.filter((a) => a.status === "active").length} • Охранников:{" "}
-            {agencies.reduce((sum, a) => sum + a.guardsCount, 0)}
+            Всего агентств: {total} • На странице: {agencies.length} • Активных
+            на странице: {activeOnPage} • Охранников на странице: {guardsOnPage}
           </p>
         </div>
         <div className="flex gap-3">
@@ -251,7 +503,16 @@ export function AgenciesList() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {!sortedAgencies || sortedAgencies.length === 0 ? (
+              {isLoading ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={9}
+                    className="text-center py-12 text-muted-foreground"
+                  >
+                    Загрузка агентств...
+                  </TableCell>
+                </TableRow>
+              ) : sortedAgencies.length === 0 ? (
                 <TableRow>
                   <TableCell
                     colSpan={9}
