@@ -19,6 +19,7 @@ interface StartWorkDialogProps {
   branch: any;
   checkpoint: any;
   onConfirm: () => void;
+  onCancel: () => void;
 }
 
 export function StartWorkDialog({
@@ -28,6 +29,7 @@ export function StartWorkDialog({
   branch,
   checkpoint,
   onConfirm,
+  onCancel,
 }: StartWorkDialogProps) {
   const [step, setStep] = useState<"info" | "photo" | "confirm">("info");
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -176,18 +178,14 @@ export function StartWorkDialog({
     setStep("photo");
   };
 
-  // Автоматический запуск камеры после перехода на шаг "Фото"
-  useEffect(() => {
-    if (open && step === "photo") {
-      const frame = requestAnimationFrame(() => {
-        startCamera();
-      });
-
-      return () => {
-        cancelAnimationFrame(frame);
-      };
-    }
-  }, [open, step, startCamera]);
+  const handleCancel = () => {
+    stopCamera();
+    setPhoto(null);
+    setStep("info");
+    setCameraError(null);
+    onOpenChange(false);
+    onCancel();
+  };
 
   // Очистка при закрытии
   useEffect(() => {
@@ -398,7 +396,7 @@ export function StartWorkDialog({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => onOpenChange(false)}
+                onClick={handleCancel}
               >
                 Отмена
               </Button>
@@ -414,10 +412,7 @@ export function StartWorkDialog({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => {
-                  stopCamera();
-                  setStep("info");
-                }}
+                onClick={handleCancel}
               >
                 <X className="h-4 w-4 mr-2" />
                 Отмена

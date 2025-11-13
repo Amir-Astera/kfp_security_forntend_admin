@@ -101,7 +101,9 @@ export function GuardEntryRegistration({ visits, onRegisterVisit, isSubmitting }
           setValue("fullName", previousVisit.fullName);
         }
         if (!currentPhone && previousVisit.phone) {
-          setValue("phone", previousVisit.phone);
+          setValue("phone", formatPhoneNumber(previousVisit.phone), {
+            shouldValidate: true,
+          });
         }
         if (!currentCompany && previousVisit.company) {
           setValue("company", previousVisit.company);
@@ -119,18 +121,68 @@ export function GuardEntryRegistration({ visits, onRegisterVisit, isSubmitting }
 
   const formatPhoneNumber = (value: string): string => {
     const digits = value.replace(/\\D/g, "");
-    const limited = digits.slice(0, 11);
-    const normalized = limited.startsWith("8") ? "7" + limited.slice(1) : limited;
 
-    if (normalized.length === 0) return "";
-    if (normalized.length <= 1) return "+7";
-    if (normalized.length <= 4) return `+7 (${normalized.slice(1)})`;
-    if (normalized.length <= 7)
-      return `+7 (${normalized.slice(1, 4)}) ${normalized.slice(4)}`;
-    if (normalized.length <= 9)
-      return `+7 (${normalized.slice(1, 4)}) ${normalized.slice(4, 7)} ${normalized.slice(7)}`;
-    return `+7 (${normalized.slice(1, 4)}) ${normalized.slice(4, 7)} ${normalized.slice(7, 9)} ${normalized.slice(9, 11)}`;
+    if (digits.length === 0) {
+      return "";
+    }
+
+    let normalized = digits;
+
+    if (normalized.startsWith("8")) {
+      normalized = "7" + normalized.slice(1);
+    } else if (!normalized.startsWith("7")) {
+      normalized = `7${normalized}`;
+    }
+
+    normalized = normalized.slice(0, 11);
+
+    const area = normalized.slice(1, Math.min(4, normalized.length));
+    const first = normalized.slice(4, Math.min(7, normalized.length));
+    const second = normalized.slice(7, Math.min(9, normalized.length));
+    const third = normalized.slice(9, Math.min(11, normalized.length));
+
+    let result = "+7";
+
+    if (!area) {
+      return result;
+    }
+
+    result += ` (${area}${area.length === 3 ? ")" : ""}`;
+
+    if (area.length < 3) {
+      return result;
+    }
+
+    if (first) {
+      result += ` ${first}`;
+    }
+
+    if (first.length < 3) {
+      return result;
+    }
+
+    if (second) {
+      result += ` ${second}`;
+    }
+
+    if (second.length < 2) {
+      return result;
+    }
+
+    if (third) {
+      result += ` ${third}`;
+    }
+
+    return result;
   };
+
+  const phoneRegister = register("phone", {
+    required: "Телефон обязателен",
+    validate: (value) => {
+      const digits = value.replace(/\\D/g, "");
+      return digits.length === 11 || "Введите корректный номер";
+    },
+  });
 
   // Функция поиска подсказок
   const searchSuggestions = (field: "fullName" | "iin" | "phone" | "company", value: string) => {
@@ -188,7 +240,9 @@ export function GuardEntryRegistration({ visits, onRegisterVisit, isSubmitting }
   const selectSuggestion = (visit: Visit) => {
     setValue("fullName", visit.fullName);
     setValue("iin", visit.iin);
-    setValue("phone", visit.phone);
+    setValue("phone", formatPhoneNumber(visit.phone), {
+      shouldValidate: true,
+    });
     setValue("company", visit.company);
     if (visit.purpose) {
       setValue("purpose", visit.purpose);
@@ -268,7 +322,11 @@ export function GuardEntryRegistration({ visits, onRegisterVisit, isSubmitting }
       // Восстанавливаем черновик гостя
       if (Object.keys(draft.guest).length > 0) {
         Object.entries(draft.guest).forEach(([key, value]) => {
-          setValue(key as keyof GuestFormData, value as any);
+          const formattedValue =
+            key === "phone" ? formatPhoneNumber(String(value ?? "")) : value;
+          setValue(key as keyof GuestFormData, formattedValue as any, {
+            shouldValidate: key === "phone",
+          });
         });
       } else {
         // Очищаем только поля транспорта
@@ -286,7 +344,11 @@ export function GuardEntryRegistration({ visits, onRegisterVisit, isSubmitting }
       // Восстанавливаем черновик транспорта
       if (Object.keys(draft.transport).length > 0) {
         Object.entries(draft.transport).forEach(([key, value]) => {
-          setValue(key as keyof GuestFormData, value as any);
+          const formattedValue =
+            key === "phone" ? formatPhoneNumber(String(value ?? "")) : value;
+          setValue(key as keyof GuestFormData, formattedValue as any, {
+            shouldValidate: key === "phone",
+          });
         });
       }
     }
@@ -438,24 +500,19 @@ export function GuardEntryRegistration({ visits, onRegisterVisit, isSubmitting }
               <Label htmlFor="phone">
                 Телефон <span className="text-destructive">*</span>
               </Label>
-              <Input
-                id="phone"
-                {...register("phone", {
-                  required: "Телефон обязателен",
-                  validate: (value) => {
-                    const digits = value.replace(/\D/g, "");
-                    return digits.length === 11 || "Введите корректный номер";
-                  },
-                })}
-                placeholder="+7 (707) 123 45 67"
-                onChange={(e) => {
-                  const formatted = formatPhoneNumber(e.target.value);
-                  e.target.value = formatted;
-                  searchSuggestions("phone", e.target.value);
-                  setActiveField("phone");
-                }}
-                onFocus={() => setActiveField("phone")}
-              />
+                <Input
+                  id="phone"
+                  {...phoneRegister}
+                  placeholder="+7 (707) 123 45 67"
+                  onChange={(e) => {
+                    const formatted = formatPhoneNumber(e.target.value);
+                    e.target.value = formatted;
+                    phoneRegister.onChange(e);
+                    searchSuggestions("phone", formatted);
+                    setActiveField("phone");
+                  }}
+                  onFocus={() => setActiveField("phone")}
+                />
               {errors.phone && <p className="text-destructive mt-1 text-sm">{errors.phone.message}</p>}
               
               {/* Подсказки для Телефона */}
