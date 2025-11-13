@@ -15,7 +15,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Search, Download } from "lucide-react";
 import { toast } from "sonner@2.0.3";
-import { db } from "../services";
 import { fetchGuardGuestKindChart } from "../api/dashboard";
 import type { AuthResponse, GuardGuestKindScope, Visit } from "../types";
 import * as XLSX from "xlsx";
@@ -40,6 +39,9 @@ type GuestKindChartEntry = {
 
 interface GuardStatisticsProps {
   authTokens: AuthResponse | null;
+  visits: Visit[];
+  visitsLoading?: boolean;
+  visitsError?: string | null;
 }
 
 const GUEST_KIND_LABELS: Record<string, string> = {
@@ -66,7 +68,7 @@ const GUEST_KIND_COLORS: Record<string, string> = {
 
 const FALLBACK_COLORS = ["#3b82f6", "#8b5cf6", "#22c55e", "#f97316", "#0ea5e9"];
 
-export function GuardStatistics({ authTokens }: GuardStatisticsProps) {
+export function GuardStatistics({ authTokens, visits, visitsLoading, visitsError }: GuardStatisticsProps) {
   const [activeTab, setActiveTab] = useState("on-site");
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | "guest" | "transport">("all");
@@ -79,9 +81,6 @@ export function GuardStatistics({ authTokens }: GuardStatisticsProps) {
   const [chartLoading, setChartLoading] = useState(false);
   const [chartError, setChartError] = useState<string | null>(null);
 
-  // Получаем визиты
-  const visits = db.getVisits ? db.getVisits() : [];
-  
   // Визиты на территории
   const onSiteVisits = visits.filter((v) => v.status === "on-site");
   
@@ -213,42 +212,6 @@ export function GuardStatistics({ authTokens }: GuardStatisticsProps) {
   const shouldUseFallback = !authTokens?.accessToken || !authTokens?.tokenType || chartError;
   const chartData = shouldUseFallback || apiChartData.length === 0 ? fallbackChartData : apiChartData;
 
-  const handleQuickExit = (visit: Visit) => {
-    const confirmed = window.confirm(
-      `Зарегистрировать выезд для:\n${visit.fullName}?`
-    );
-
-    if (confirmed) {
-      try {
-        const now = new Date();
-        const exitTime = `${now.toLocaleDateString("ru-RU", {
-          day: "2-digit",
-          month: "2-digit",
-          year: "numeric",
-        })} ${now.toLocaleTimeString("ru-RU", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })}`;
-
-        if (db.updateVisit) {
-          db.updateVisit(visit.id, {
-            exitTime,
-            status: "exited",
-          });
-        }
-
-        // Звуковое уведомление
-        const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBCh+zPLTgjMGHm7A7+OZRQ0PVKzn77BdGA==");
-        audio.play().catch(() => {});
-
-        toast.success("✅ Выезд зарегистрирован");
-      } catch (error) {
-        console.error("Ошибка:", error);
-        toast.error("Ошибка при регистрации выезда");
-      }
-    }
-  };
-
   const handleExport = () => {
     try {
       // Простой экспорт в CSV
@@ -341,6 +304,33 @@ export function GuardStatistics({ authTokens }: GuardStatisticsProps) {
     }
   };
 
+  if (visitsLoading) {
+    return (
+      <div className="space-y-6">
+        <Card className="border-dashed">
+          <CardContent className="py-6 text-center text-muted-foreground">
+            Загрузка визитов...
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (visitsError) {
+    return (
+      <div className="space-y-6">
+        <Card className="border-destructive/20 bg-destructive/10">
+          <CardContent className="py-4 text-center">
+            <p className="text-destructive">{visitsError}</p>
+            <p className="text-muted-foreground text-sm mt-2">
+              Данные по визитам временно недоступны. Попробуйте обновить страницу.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* График Гости vs Транспорт */}
@@ -370,20 +360,15 @@ export function GuardStatistics({ authTokens }: GuardStatisticsProps) {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" />
               <YAxis allowDecimals={false} />
-              <Tooltip 
+              <Tooltip
                 contentStyle={{
-                  backgroundColor: 'hsl(var(--background))',
-                  border: '1px solid hsl(var(--border))',
-                  borderRadius: '6px',
+                  backgroundColor: "hsl(var(--background))",
+                  border: "1px solid hsl(var(--border))",
+                  borderRadius: "6px",
                 }}
               />
               <Legend />
-              <Bar
-                dataKey="count"
-                fill="#3b82f6"
-                radius={[8, 8, 0, 0]}
-                name="Количество"
-              >
+              <Bar dataKey="count" fill="#3b82f6" radius={[8, 8, 0, 0]} name="Количество">
                 {chartData.map((entry) => (
                   <Cell key={entry.kind} fill={entry.fill} />
                 ))}
