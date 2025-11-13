@@ -1,405 +1,195 @@
-import { Visit, CreateVisitRequest, UpdateVisitRequest, VisitFilters, PaginatedResponse } from "../types";
+import type { AuthResponse, Visit } from "../types";
 
-// ============================================
-// MOCK DATA
-// ============================================
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
 
-const mockVisits: Visit[] = [
-  {
-    id: "1",
-    entryTime: "04.11.2025 08:15",
-    exitTime: "04.11.2025 12:30",
-    timeOnSite: "4ч 15м",
-    fullName: "Иванов Петр Сергеевич",
-    iin: "920315301234",
-    company: "ТОО «Агро-Техника»",
-    phone: "+7 727 250 1111",
-    purpose: "Деловая встреча",
-    places: ["Офис директора", "Конференц-зал"],
-    hasVehicle: false,
-    branchId: "1",
-    branchName: "Алматы - Центральный офис",
-    checkpointId: "1",
-    checkpointName: "КПП-1 (Главный въезд)",
-    guardId: "1",
-    guardName: "Сергеев Иван Петрович",
-    agencyId: "1",
-    agencyName: "ТОО «Казахстан Секьюрити»",
-    status: "left",
-    createdAt: "04.11.2025 08:15",
-    updatedAt: "04.11.2025 12:30",
-  },
-  {
-    id: "2",
-    entryTime: "04.11.2025 09:00",
-    timeOnSite: "3ч 15м",
-    fullName: "Смирнова Елена Викторовна",
-    iin: "850620450123",
-    company: "ИП «Консалт Плюс»",
-    phone: "+7 727 250 2222",
-    purpose: "Совещание",
-    places: ["Отдел продаж"],
-    hasVehicle: false,
-    branchId: "1",
-    branchName: "Алматы - Центральный офис",
-    checkpointId: "1",
-    checkpointName: "КПП-1 (Главный въезд)",
-    guardId: "1",
-    guardName: "Сергеев Иван Петрович",
-    agencyId: "1",
-    agencyName: "ТОО «Казахстан Секьюрити»",
-    status: "on-site",
-    createdAt: "04.11.2025 09:00",
-  },
-  {
-    id: "3",
-    entryTime: "04.11.2025 07:30",
-    exitTime: "04.11.2025 08:45",
-    timeOnSite: "1ч 15м",
-    fullName: "Касымов Нурлан Бекович",
-    iin: "780910301567",
-    company: "ТОО «СтройСервис»",
-    phone: "+7 727 250 3333",
-    purpose: "Поставка товаров",
-    places: ["Склад №1"],
-    hasVehicle: true,
-    vehicleNumber: "А123ВС01",
-    techPassport: "KZ1234567",
-    ttn: "TTN-2025-0012345",
-    cargoType: "Стройматериалы",
-    branchId: "1",
-    branchName: "Алматы - Центральный офис",
-    checkpointId: "2",
-    checkpointName: "КПП-2 (Грузовой въезд)",
-    guardId: "2",
-    guardName: "Абдуллаев Марат Саматович",
-    agencyId: "1",
-    agencyName: "ТОО «Казахстан Секьюрити»",
-    status: "left",
-    createdAt: "04.11.2025 07:30",
-    updatedAt: "04.11.2025 08:45",
-  },
-  {
-    id: "4",
-    entryTime: "04.11.2025 10:20",
-    timeOnSite: "2ч 5м",
-    fullName: "Жумабеков Асхат Маратович",
-    iin: "930825601890",
-    company: "ТОО «АгроЛидер»",
-    phone: "+7 727 250 4444",
-    purpose: "Обслуживание",
-    places: ["Производство", "Цех №2"],
-    hasVehicle: false,
-    branchId: "2",
-    branchName: "Астана - Северный",
-    checkpointId: "5",
-    checkpointName: "КПП-1 (Главный)",
-    guardId: "5",
-    guardName: "Петров Александр Иванович",
-    agencyId: "1",
-    agencyName: "ТОО «Казахстан Секьюрити»",
-    status: "on-site",
-    createdAt: "04.11.2025 10:20",
-  },
-  {
-    id: "5",
-    entryTime: "04.11.2025 06:00",
-    exitTime: "04.11.2025 07:30",
-    timeOnSite: "1ч 30м",
-    fullName: "Султанова Айгуль Ержановна",
-    iin: "880512450234",
-    company: "ТОО «Продукты Плюс»",
-    phone: "+7 727 250 5555",
-    purpose: "Поставка товаров",
-    places: ["Склад готовой продукции"],
-    hasVehicle: true,
-    vehicleNumber: "В456КХ02",
-    techPassport: "KZ7654321",
-    ttn: "TTN-2025-0012346",
-    cargoType: "Продукция",
-    branchId: "3",
-    branchName: "Шымкент - Южный филиал",
-    checkpointId: "7",
-    checkpointName: "КПП-1",
-    guardId: "7",
-    guardName: "Ким Сергей Викторович",
-    agencyId: "2",
-    agencyName: "ТОО «Альфа-Охрана»",
-    status: "left",
-    createdAt: "04.11.2025 06:00",
-    updatedAt: "04.11.2025 07:30",
-  },
-  {
-    id: "6",
-    entryTime: "04.11.2025 11:45",
-    timeOnSite: "30м",
-    fullName: "Ли Владимир Андреевич",
-    iin: "950203701456",
-    company: "ИП «Техсервис»",
-    phone: "+7 727 250 6666",
-    purpose: "Ремонтные работы",
-    places: ["Административное здание"],
-    hasVehicle: false,
-    branchId: "1",
-    branchName: "Алматы - Центральный офис",
-    checkpointId: "4",
-    checkpointName: "КПП-4 (Универсальный)",
-    guardId: "3",
-    guardName: "Турсунов Бахтияр Нурланович",
-    agencyId: "1",
-    agencyName: "ТОО «Казахстан Секьюрити»",
-    status: "on-site",
-    createdAt: "04.11.2025 11:45",
-  },
-  {
-    id: "7",
-    entryTime: "03.11.2025 14:00",
-    exitTime: "03.11.2025 18:30",
-    timeOnSite: "4ч 30м",
-    fullName: "Мустафина Алия Ерлановна",
-    iin: "870914302345",
-    company: "АО «КазАгро»",
-    phone: "+7 727 250 7777",
-    purpose: "Инспекция",
-    places: ["Производство", "Складские помещения", "Офис"],
-    hasVehicle: false,
-    branchId: "1",
-    branchName: "Алматы - Центральный офис",
-    checkpointId: "1",
-    checkpointName: "КПП-1 (Главный въезд)",
-    guardId: "1",
-    guardName: "Сергеев Иван Петрович",
-    agencyId: "1",
-    agencyName: "ТОО «Казахстан Секьюрити»",
-    status: "left",
-    createdAt: "03.11.2025 14:00",
-    updatedAt: "03.11.2025 18:30",
-  },
-  {
-    id: "8",
-    entryTime: "03.11.2025 09:15",
-    exitTime: "03.11.2025 11:00",
-    timeOnSite: "1ч 45м",
-    fullName: "Нурланов Ерлан Асхатович",
-    iin: "920620501678",
-    company: "ТОО «УдобренияКЗ»",
-    phone: "+7 727 250 8888",
-    purpose: "Поставка товаров",
-    places: ["Склад №3"],
-    hasVehicle: true,
-    vehicleNumber: "К789МН05",
-    techPassport: "KZ9876543",
-    ttn: "TTN-2025-0012347",
-    cargoType: "Удобрения",
-    branchId: "5",
-    branchName: "Актобе - Западный",
-    checkpointId: "10",
-    checkpointName: "КПП-2",
-    guardId: "10",
-    guardName: "Жанабаев Ержан Болатович",
-    agencyId: "3",
-    agencyName: "АО «БезопасностьПлюс»",
-    status: "left",
-    createdAt: "03.11.2025 09:15",
-    updatedAt: "03.11.2025 11:00",
-  },
-];
+export interface GuestVisitApiItem {
+  id: string;
+  guardId?: string;
+  guardName?: string;
+  branchId?: string;
+  branchName?: string;
+  checkpointId?: string;
+  checkpointName?: string;
+  kind?: string;
+  fullName: string;
+  iin?: string;
+  phone?: string;
+  company?: string;
+  visitPurpose?: string;
+  visitPlaces?: string[];
+  visitPlace?: string;
+  notes?: string;
+  licensePlate?: string;
+  techPassportNo?: string;
+  ttnNo?: string;
+  cargoType?: string;
+  entryAt?: string;
+  exitAt?: string;
+  active?: boolean;
+  version?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
-// ============================================
-// API FUNCTIONS (MOCK IMPLEMENTATION)
-// ============================================
+export interface GuestVisitsResponse {
+  items: GuestVisitApiItem[];
+  page: number;
+  size: number;
+  total: number;
+}
 
-/**
- * Получить список визитов с фильтрами и пагинацией
- */
-export async function getVisits(
-  filters?: VisitFilters,
-  page: number = 1,
-  pageSize: number = 20
-): Promise<PaginatedResponse<Visit>> {
-  // Имитация задержки API
-  await new Promise((resolve) => setTimeout(resolve, 300));
+export interface GuestVisitsQueryParams {
+  page?: number;
+  size?: number;
+  branchId?: string;
+  guardId?: string;
+  search?: string;
+  active?: boolean;
+}
 
-  let filteredVisits = [...mockVisits];
+const buildQueryString = (params: Record<string, unknown>): string => {
+  const searchParams = new URLSearchParams();
 
-  // Применяем фильтры
-  if (filters) {
-    if (filters.search) {
-      const searchLower = filters.search.toLowerCase();
-      filteredVisits = filteredVisits.filter(
-        (visit) =>
-          visit.fullName.toLowerCase().includes(searchLower) ||
-          visit.iin.includes(searchLower) ||
-          visit.company.toLowerCase().includes(searchLower) ||
-          visit.phone.includes(searchLower) ||
-          visit.vehicleNumber?.toLowerCase().includes(searchLower)
-      );
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      return;
     }
 
-    if (filters.branchId) {
-      filteredVisits = filteredVisits.filter(
-        (visit) => visit.branchId === filters.branchId
-      );
-    }
+    searchParams.append(key, String(value));
+  });
 
-    if (filters.checkpointId) {
-      filteredVisits = filteredVisits.filter(
-        (visit) => visit.checkpointId === filters.checkpointId
-      );
-    }
+  const queryString = searchParams.toString();
+  return queryString ? `?${queryString}` : "";
+};
 
-    if (filters.agencyId) {
-      filteredVisits = filteredVisits.filter(
-        (visit) => visit.agencyId === filters.agencyId
-      );
-    }
+const getAuthHeaders = (tokens: Pick<AuthResponse, "accessToken" | "tokenType">) => ({
+  Authorization: `${tokens.tokenType} ${tokens.accessToken}`,
+});
 
-    if (filters.status && filters.status !== "all") {
-      filteredVisits = filteredVisits.filter(
-        (visit) => visit.status === filters.status
-      );
-    }
-
-    if (filters.hasVehicle !== undefined) {
-      filteredVisits = filteredVisits.filter(
-        (visit) => visit.hasVehicle === filters.hasVehicle
-      );
-    }
-
-    if (filters.purpose) {
-      filteredVisits = filteredVisits.filter(
-        (visit) => visit.purpose === filters.purpose
-      );
-    }
-
-    // Фильтр по датам (упрощенная реализация)
-    if (filters.dateFrom || filters.dateTo) {
-      // В реальном API здесь будет сравнение дат
-      // Пока оставим как есть для мока
-    }
+const handleErrorResponse = async (response: Response, fallbackMessage: string) => {
+  if (response.ok) {
+    return;
   }
 
-  // Пагинация
-  const total = filteredVisits.length;
-  const totalPages = Math.ceil(total / pageSize);
-  const start = (page - 1) * pageSize;
-  const end = start + pageSize;
-  const items = filteredVisits.slice(start, end);
+  let message = fallbackMessage;
+
+  try {
+    const errorBody = await response.json();
+    if (typeof errorBody?.message === "string") {
+      message = errorBody.message;
+    }
+  } catch (error) {
+    console.error("Ошибка обработки ответа API визитов", error);
+  }
+
+  throw new Error(message);
+};
+
+const formatDateTime = (value?: string): string | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+
+  return date.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const formatDuration = (start?: string, end?: string): string | undefined => {
+  if (!start || !end) {
+    return undefined;
+  }
+
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return undefined;
+  }
+
+  const diffMs = endDate.getTime() - startDate.getTime();
+  if (diffMs <= 0) {
+    return undefined;
+  }
+
+  const totalMinutes = Math.floor(diffMs / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  const hoursLabel = hours > 0 ? `${hours}ч` : "";
+  const minutesLabel = `${minutes}м`;
+
+  return `${hoursLabel ? `${hoursLabel} ` : ""}${minutesLabel}`.trim();
+};
+
+export const mapGuestVisitToVisit = (item: GuestVisitApiItem): Visit => {
+  const entryTime = formatDateTime(item.entryAt) ?? item.entryAt ?? "";
+  const exitTime = formatDateTime(item.exitAt);
+  const createdAt = formatDateTime(item.createdAt) ?? item.createdAt ?? "";
+  const updatedAt = formatDateTime(item.updatedAt);
+
+  const places = [
+    ...(Array.isArray(item.visitPlaces) ? item.visitPlaces : []),
+    item.visitPlace ?? undefined,
+  ].filter((place): place is string => Boolean(place));
 
   return {
-    items,
-    total,
-    page,
-    pageSize,
-    totalPages,
+    id: item.id,
+    entryTime,
+    exitTime,
+    timeOnSite: formatDuration(item.entryAt, item.exitAt),
+    fullName: item.fullName,
+    iin: item.iin ?? "",
+    company: item.company ?? "",
+    phone: item.phone ?? "",
+    purpose: item.visitPurpose ?? "",
+    places,
+    hasVehicle: Boolean(item.licensePlate),
+    vehicleNumber: item.licensePlate ?? undefined,
+    techPassport: item.techPassportNo ?? undefined,
+    ttn: item.ttnNo ?? undefined,
+    cargoType: item.cargoType ?? undefined,
+    branchId: item.branchId ?? "",
+    branchName: item.branchName ?? item.branchId ?? "",
+    checkpointId: item.checkpointId ?? "",
+    checkpointName: item.checkpointName ?? item.checkpointId ?? "",
+    guardId: item.guardId ?? "",
+    guardName: item.guardName ?? item.guardId ?? "",
+    agencyId: "",
+    agencyName: "",
+    status: item.active ? "on-site" : "left",
+    createdAt,
+    updatedAt,
   };
-}
+};
 
-/**
- * Получить визит по ID
- */
-export async function getVisitById(id: string): Promise<Visit | null> {
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  return mockVisits.find((visit) => visit.id === id) || null;
-}
-
-/**
- * Создать новый визит
- */
-export async function createVisit(data: CreateVisitRequest): Promise<Visit> {
-  await new Promise((resolve) => setTimeout(resolve, 500));
-
-  // В реальном API здесь будет POST запрос
-  const newVisit: Visit = {
-    id: String(mockVisits.length + 1),
-    ...data,
-    entryTime: new Date().toLocaleString("ru-RU"),
-    status: "on-site",
-    createdAt: new Date().toLocaleString("ru-RU"),
-    // Получить названия из ID (в реальном API это придет с бэкенда)
-    branchName: "Название филиала",
-    checkpointName: "Название КПП",
-    guardName: "Имя охранника",
-    agencyName: "Название агентства",
-  };
-
-  mockVisits.push(newVisit);
-  return newVisit;
-}
-
-/**
- * Обновить визит
- */
-export async function updateVisit(
-  id: string,
-  data: UpdateVisitRequest
-): Promise<Visit> {
-  await new Promise((resolve) => setTimeout(resolve, 500));
-
-  // В реальном API здесь будет PUT/PATCH запрос
-  const index = mockVisits.findIndex((visit) => visit.id === id);
-  if (index === -1) {
-    throw new Error("Visit not found");
-  }
-
-  // Расчет времени на территории при выходе
-  let timeOnSite = mockVisits[index].timeOnSite;
-  if (data.exitTime && !mockVisits[index].exitTime) {
-    // Простой расчет (в реальном API это будет на бэкенде)
-    timeOnSite = "Рассчитано";
-  }
-
-  mockVisits[index] = {
-    ...mockVisits[index],
-    ...data,
-    timeOnSite,
-    updatedAt: new Date().toLocaleString("ru-RU"),
-  };
-
-  return mockVisits[index];
-}
-
-/**
- * Зарегистрировать выход (завершить визит)
- */
-export async function checkoutVisit(id: string): Promise<Visit> {
-  return updateVisit(id, {
-    exitTime: new Date().toLocaleString("ru-RU"),
-    status: "left",
+export async function getGuestVisits(
+  tokens: Pick<AuthResponse, "accessToken" | "tokenType">,
+  params: GuestVisitsQueryParams = {}
+): Promise<GuestVisitsResponse> {
+  const { page = 0, size = 25, ...rest } = params;
+  const queryString = buildQueryString({ page, size, ...rest });
+  const response = await fetch(`${API_BASE_URL}/api/v1/guests${queryString}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(tokens),
+    },
   });
+
+  await handleErrorResponse(response, "Не удалось загрузить список визитов");
+  return response.json();
 }
 
-/**
- * Удалить визит (для суперадмина)
- */
-export async function deleteVisit(id: string): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 300));
-
-  // В реальном API здесь будет DELETE запрос
-  const index = mockVisits.findIndex((visit) => visit.id === id);
-  if (index !== -1) {
-    mockVisits.splice(index, 1);
-  }
-}
-
-/**
- * Экспорт визитов в Excel (возвращает URL для скачивания)
- */
-export async function exportVisits(filters?: VisitFilters): Promise<string> {
-  await new Promise((resolve) => setTimeout(resolve, 1000));
-
-  // В реальном API здесь будет запрос на генерацию Excel файла
-  // Возвращает URL для скачивания
-  return "/api/exports/visits-2025-11-04.xlsx";
-}
-
-// ============================================
-// HELPER FUNCTIONS
-// ============================================
-
-/**
- * Получить уникальные цели визитов
- */
 export function getVisitPurposes(): string[] {
   return [
     "Деловая встреча",
@@ -412,9 +202,6 @@ export function getVisitPurposes(): string[] {
   ];
 }
 
-/**
- * Получить типы грузов
- */
 export function getCargoTypes(): string[] {
   return [
     "Сельхозтехника",
@@ -428,3 +215,4 @@ export function getCargoTypes(): string[] {
     "Прочее",
   ];
 }
+

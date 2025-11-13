@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -19,25 +19,35 @@ import {
 } from "./ui/select";
 import { StatusBadge } from "./StatusBadge";
 import { VisitDetailDialog } from "./VisitDetailDialog";
-import { VisitFormDialog } from "./VisitFormDialog";
 import { SortableTableHead } from "./SortableTableHead";
-import { Search, Download, Eye, Filter, Calendar, Clock, Truck, User, LogOut, Plus } from "lucide-react";
+import { Search, Download, Eye, Filter, Calendar, Clock, Truck, User } from "lucide-react";
 import { Badge } from "./ui/badge";
-import { Visit } from "../types";
-import { db } from "../services";
+import type { AuthResponse, Visit } from "../types";
 import { toast } from "sonner@2.0.3";
 import { useSorting } from "./hooks/useSorting";
 import { exportVisits } from "../utils/export";
+import { getGuestVisits, mapGuestVisitToVisit, getVisitPurposes } from "../api/visits";
+import { getBranches } from "../api/branches";
+import { getCheckpoints } from "../api/checkpoints";
 
-export function VisitsList() {
+interface VisitsListProps {
+  authTokens: AuthResponse | null;
+}
+
+export function VisitsList({ authTokens }: VisitsListProps) {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
   const [checkpoints, setCheckpoints] = useState<any[]>([]);
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
-  const [formDialogOpen, setFormDialogOpen] = useState(false);
-  const [editingVisit, setEditingVisit] = useState<Visit | null>(null);
-  
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [totalItems, setTotalItems] = useState(0);
+
+  // Пагинация (пока только первая страница)
+  const [currentPage] = useState(0);
+  const [pageSize] = useState(25);
+
   // Фильтры
   const [searchQuery, setSearchQuery] = useState("");
   const [branchFilter, setBranchFilter] = useState<string>("all");
@@ -49,76 +59,90 @@ export function VisitsList() {
   // Сортировка
   const { sortField, sortDirection, handleSort, sortData } = useSorting();
 
-  // Загрузка данных
+  const purposes = useMemo(() => getVisitPurposes(), []);
+  const isAuthorized = Boolean(authTokens?.accessToken && authTokens?.tokenType);
+
   useEffect(() => {
-    loadVisits();
-    loadBranches();
-    loadCheckpoints();
-  }, []);
-
-  const loadVisits = () => {
-    try {
-      const data = db.getVisits();
-      setVisits(data);
-    } catch (error) {
-      console.error('Ошибка загрузки визитов:', error);
-      toast.error('Не удалось загрузить визиты');
+    if (!isAuthorized) {
+      return;
     }
-  };
 
-  const loadBranches = () => {
-    try {
-      const data = db.getBranches();
-      setBranches(data);
-    } catch (error) {
-      console.error('Ошибка загрузки филиалов:', error);
-    }
-  };
+    let ignore = false;
 
-  const loadCheckpoints = () => {
-    try {
-      const data = db.getCheckpoints();
-      setCheckpoints(data);
-    } catch (error) {
-      console.error('Ошибка загрузки КПП:', error);
-    }
-  };
+    const loadVisits = async () => {
+      setIsLoading(true);
+      setError(null);
 
-  const handleCreateOrUpdate = (data: any) => {
-    try {
-      if (editingVisit) {
-        db.updateVisit(editingVisit.id, data);
-        toast.success('Визит успешно обновлен');
-      } else {
-        db.createVisit(data);
-        toast.success('Визит успешно зарегистрирован');
+      try {
+        const response = await getGuestVisits(
+          { accessToken: authTokens!.accessToken, tokenType: authTokens!.tokenType },
+          {
+            page: currentPage,
+            size: pageSize,
+            branchId: branchFilter === "all" ? undefined : branchFilter,
+          }
+        );
+
+        if (ignore) {
+          return;
+        }
+
+        setVisits(response.items.map(mapGuestVisitToVisit));
+        setTotalItems(response.total ?? response.items.length);
+      } catch (loadError) {
+        if (ignore) {
+          return;
+        }
+
+        const message =
+          loadError instanceof Error
+            ? loadError.message
+            : "Не удалось загрузить визиты";
+        setError(message);
+        toast.error(message);
+        setVisits([]);
+        setTotalItems(0);
+      } finally {
+        if (!ignore) {
+          setIsLoading(false);
+        }
       }
-      loadVisits();
-      setFormDialogOpen(false);
-      setEditingVisit(null);
-    } catch (error) {
-      console.error('Ошибка сохранения визита:', error);
-      toast.error('Не удалось сохранить визит');
-    }
-  };
+    };
 
-  const handleCheckout = (visit: Visit) => {
-    try {
-      const exitTime = new Date().toLocaleTimeString('ru-RU', {
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-      db.updateVisit(visit.id, { 
-        status: 'left',
-        exitTime 
-      });
-      toast.success(`Визитор ${visit.fullName} выписан в ${exitTime}`);
-      loadVisits();
-    } catch (error) {
-      console.error('Ошибка выписки визита:', error);
-      toast.error('Не удалось выписать визитора');
+    loadVisits();
+
+    return () => {
+      ignore = true;
+    };
+  }, [authTokens, branchFilter, currentPage, isAuthorized, pageSize]);
+
+  useEffect(() => {
+    if (!isAuthorized) {
+      return;
     }
-  };
+
+    const loadDirectories = async () => {
+      try {
+        const [branchesResponse, checkpointsResponse] = await Promise.all([
+          getBranches(
+            { accessToken: authTokens!.accessToken, tokenType: authTokens!.tokenType },
+            { size: 100 }
+          ),
+          getCheckpoints(
+            { accessToken: authTokens!.accessToken, tokenType: authTokens!.tokenType },
+            { size: 100 }
+          ),
+        ]);
+
+        setBranches(branchesResponse.items ?? []);
+        setCheckpoints(checkpointsResponse.items ?? []);
+      } catch (directoryError) {
+        console.error("Не удалось загрузить справочники", directoryError);
+      }
+    };
+
+    loadDirectories();
+  }, [authTokens, isAuthorized]);
 
   const handleViewDetails = (visit: Visit) => {
     setSelectedVisit(visit);
@@ -126,27 +150,31 @@ export function VisitsList() {
   };
 
   const handleExport = () => {
+    if (!visits.length) {
+      toast.info("Нет данных для экспорта");
+      return;
+    }
+
     exportVisits(visits);
   };
 
-  const purposes = [
-    "Деловая встреча",
-    "Поставка товаров",
-    "Обслуживание",
-    "Совещание",
-    "Инспекция",
-    "Ремонтные работы",
-    "Прочее",
-  ];
+  if (!isAuthorized) {
+    return (
+      <Card className="p-6 text-muted-foreground">
+        Не удалось получить токен авторизации. Выполните вход повторно.
+      </Card>
+    );
+  }
 
-  // Фильтрация
   const filteredVisits = visits.filter((visit) => {
+    const searchLower = searchQuery.trim().toLowerCase();
     const matchesSearch =
-      visit.fullName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      visit.iin?.includes(searchQuery) ||
-      visit.company?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      visit.phone?.includes(searchQuery) ||
-      visit.vehicleNumber?.toLowerCase().includes(searchQuery.toLowerCase());
+      searchLower.length === 0 ||
+      visit.fullName?.toLowerCase().includes(searchLower) ||
+      visit.iin?.includes(searchLower) ||
+      visit.company?.toLowerCase().includes(searchLower) ||
+      visit.phone?.includes(searchLower) ||
+      visit.vehicleNumber?.toLowerCase().includes(searchLower);
 
     const matchesBranch = branchFilter === "all" || visit.branchId === branchFilter;
     const matchesCheckpoint = checkpointFilter === "all" || visit.checkpointId === checkpointFilter;
@@ -179,21 +207,22 @@ export function VisitsList() {
         <div>
           <h2 className="text-foreground mb-1">Реестр визитов</h2>
           <p className="text-muted-foreground">
-            Всего визитов: {visits.length} • На территории: {onSiteCount} • С
-            транспортом: {vehicleCount}
+            Всего визитов: {totalItems} • На территории: {onSiteCount} • С транспортом: {vehicleCount}
           </p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" onClick={handleExport}>
+          <Button variant="outline" onClick={handleExport} disabled={!visits.length}>
             <Download className="w-4 h-4 mr-2" />
             Экспорт .xlsx
           </Button>
-          <Button variant="outline" onClick={() => setFormDialogOpen(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Добавить визит
-          </Button>
         </div>
       </div>
+
+      {error && (
+        <Card className="border-destructive/20 bg-destructive/5 p-4 text-destructive">
+          {error}
+        </Card>
+      )}
 
       {/* Filters */}
       <Card className="p-4">
@@ -213,11 +242,12 @@ export function VisitsList() {
           <div className="grid grid-cols-5 gap-3">
             <Select value={branchFilter} onValueChange={setBranchFilter}>
               <SelectTrigger>
+                <Filter className="w-4 h-4 mr-2" />
                 <SelectValue placeholder="Филиал" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все филиалы</SelectItem>
-                {branches.map((branch) => (
+                {branches.map((branch: any) => (
                   <SelectItem key={branch.id} value={branch.id}>
                     {branch.name}
                   </SelectItem>
@@ -225,16 +255,13 @@ export function VisitsList() {
               </SelectContent>
             </Select>
 
-            <Select
-              value={checkpointFilter}
-              onValueChange={setCheckpointFilter}
-            >
+            <Select value={checkpointFilter} onValueChange={setCheckpointFilter}>
               <SelectTrigger>
                 <SelectValue placeholder="КПП" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все КПП</SelectItem>
-                {checkpoints.map((checkpoint) => (
+                {checkpoints.map((checkpoint: any) => (
                   <SelectItem key={checkpoint.id} value={checkpoint.id}>
                     {checkpoint.name}
                   </SelectItem>
@@ -341,16 +368,19 @@ export function VisitsList() {
                       onSort={handleSort}
                     />
                   </TableHead>
-                  <TableHead className="w-[100px] whitespace-nowrap">Действия</TableHead>
+                  <TableHead className="w-[80px] whitespace-nowrap">Действия</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {!sortedVisits || sortedVisits.length === 0 ? (
+                {isLoading ? (
                   <TableRow>
-                    <TableCell
-                      colSpan={14}
-                      className="text-center py-12 text-muted-foreground"
-                    >
+                    <TableCell colSpan={14} className="text-center py-10 text-muted-foreground">
+                      Загрузка визитов...
+                    </TableCell>
+                  </TableRow>
+                ) : !sortedVisits || sortedVisits.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={14} className="text-center py-12 text-muted-foreground">
                       Визиты не найдены
                     </TableCell>
                   </TableRow>
@@ -361,7 +391,7 @@ export function VisitsList() {
                         <div className="flex items-start gap-2">
                           <Calendar className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
                           <div>
-                            <p className="text-foreground">{visit.entryTime}</p>
+                            <p className="text-foreground">{visit.entryTime || "—"}</p>
                             {visit.exitTime && (
                               <p className="text-muted-foreground">
                                 <Clock className="w-3 h-3 inline mr-1" />
@@ -374,21 +404,19 @@ export function VisitsList() {
                       <TableCell>
                         <div>
                           <p className="text-foreground">{visit.fullName}</p>
-                          <p className="text-muted-foreground">{visit.company}</p>
+                          <p className="text-muted-foreground">{visit.company || "—"}</p>
                         </div>
                       </TableCell>
                       <TableCell>
                         <div>
-                          <p className="text-foreground">{visit.iin}</p>
-                          <p className="text-muted-foreground">{visit.phone}</p>
+                          <p className="text-foreground">{visit.iin || "—"}</p>
+                          <p className="text-muted-foreground">{visit.phone || "—"}</p>
                         </div>
                       </TableCell>
                       <TableCell>
                         <div>
-                          <p className="text-foreground">{visit.branchName}</p>
-                          <p className="text-muted-foreground">
-                            {visit.checkpointName}
-                          </p>
+                          <p className="text-foreground">{visit.branchName || "—"}</p>
+                          <p className="text-muted-foreground">{visit.checkpointName || "—"}</p>
                         </div>
                       </TableCell>
                       <TableCell>
@@ -410,15 +438,17 @@ export function VisitsList() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline">{visit.purpose}</Badge>
+                        {visit.purpose ? (
+                          <Badge variant="outline">{visit.purpose}</Badge>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         {visit.hasVehicle ? (
                           <div className="flex items-start gap-2">
                             <Truck className="w-4 h-4 text-info mt-0.5 flex-shrink-0" />
-                            <span className="text-foreground">
-                              {visit.vehicleNumber}
-                            </span>
+                            <span className="text-foreground">{visit.vehicleNumber}</span>
                           </div>
                         ) : (
                           <span className="text-muted-foreground flex items-center gap-2">
@@ -450,8 +480,8 @@ export function VisitsList() {
                       </TableCell>
                       <TableCell>
                         <div>
-                          <p className="text-foreground">{visit.guardName}</p>
-                          <p className="text-muted-foreground text-xs">{visit.agencyName}</p>
+                          <p className="text-foreground">{visit.guardName || "—"}</p>
+                          <p className="text-muted-foreground text-xs">{visit.agencyName || "—"}</p>
                         </div>
                       </TableCell>
                       <TableCell className="whitespace-nowrap">
@@ -477,16 +507,6 @@ export function VisitsList() {
                           >
                             <Eye className="w-4 h-4" />
                           </Button>
-                          {visit.status === "on-site" && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleCheckout(visit)}
-                              title="Зарегистрировать выход"
-                            >
-                              <LogOut className="w-4 h-4 text-warning" />
-                            </Button>
-                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -498,20 +518,10 @@ export function VisitsList() {
         </div>
       </Card>
 
-      {/* Pagination */}
-      {visits.length > 0 && (
-        <div className="flex items-center justify-between">
-          <p className="text-muted-foreground">
-            Показано {visits.length} визитов
-          </p>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled>
-              Назад
-            </Button>
-            <Button variant="outline" size="sm" disabled>
-              Вперёд
-            </Button>
-          </div>
+      {/* Summary */}
+      {totalItems > 0 && (
+        <div className="flex items-center justify-between text-sm text-muted-foreground">
+          <p>Показано {visits.length} из {totalItems} визитов</p>
         </div>
       )}
 
@@ -520,16 +530,8 @@ export function VisitsList() {
         visit={selectedVisit}
         open={detailDialogOpen}
         onOpenChange={setDetailDialogOpen}
-        onCheckout={handleCheckout}
-      />
-
-      {/* Form Dialog */}
-      <VisitFormDialog
-        visit={editingVisit}
-        open={formDialogOpen}
-        onOpenChange={setFormDialogOpen}
-        onCreateOrUpdate={handleCreateOrUpdate}
       />
     </div>
   );
 }
+
