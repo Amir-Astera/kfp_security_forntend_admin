@@ -248,7 +248,7 @@ export default function App() {
         case "dashboard":
           return <AgencyDashboard />;
         case "guards":
-          return <AgencyGuardsManager />;
+          return <AgencyGuardsManager authTokens={authTokens} agencyId={userId} />;
         case "timesheet":
           return <AgencyTimesheet />;
         case "schedule":

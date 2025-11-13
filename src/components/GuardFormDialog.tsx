@@ -21,19 +21,24 @@ import {
 import { Checkbox } from "./ui/checkbox";
 import { Calendar } from "./ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { Guard } from "../types";
-import { db } from "../services";
+import type { AuthResponse, Guard } from "../types";
 import { toast } from "sonner@2.0.3";
 import { CalendarIcon, Eye, EyeOff } from "lucide-react";
 import { format, parse, isValid } from "date-fns";
 import { ru } from "date-fns/locale";
 import { cn } from "./ui/utils";
+import { getBranchesByAgencyId } from "../api/branches";
+import type { BranchApiResponse } from "../api/branches";
+import { getCheckpoints } from "../api/checkpoints";
+import type { CheckpointApiItem } from "../api/checkpoints";
 
 interface GuardFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   guard?: Guard | null;
   onSuccess: (data: any) => void;
+  authTokens?: AuthResponse | null;
+  agencyId?: string;
 }
 
 const weekDays = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"];
@@ -55,19 +60,26 @@ export function GuardFormDialog({
   onOpenChange,
   guard,
   onSuccess,
+  authTokens,
+  agencyId,
 }: GuardFormDialogProps) {
-  const [branches, setBranches] = useState<any[]>([]);
-  const [checkpoints, setCheckpoints] = useState<any[]>([]);
+  const [branches, setBranches] = useState<BranchApiResponse[]>([]);
+  const [checkpoints, setCheckpoints] = useState<CheckpointApiItem[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<string>("");
   const [selectedCheckpoint, setSelectedCheckpoint] = useState<string>("");
   const [shiftType, setShiftType] = useState<"day" | "night">("day");
   const [workDays, setWorkDays] = useState<string[]>(["ПН", "ВТ", "СР", "ЧТ", "ПТ"]);
   const [loading, setLoading] = useState(false);
+  const [branchesLoading, setBranchesLoading] = useState(false);
+  const [checkpointsLoading, setCheckpointsLoading] = useState(false);
   const [birthDate, setBirthDate] = useState<Date | undefined>(undefined);
   const [shiftStart, setShiftStart] = useState<string>("");
   const [shiftEnd, setShiftEnd] = useState<string>("");
   const [showPassword, setShowPassword] = useState(false);
   const [guardStatus, setGuardStatus] = useState<"active" | "inactive" | "vacation" | "sick">("active");
+
+  const guardAgencyId = guard?.agencyId ?? "";
+  const effectiveAgencyId = agencyId ?? guardAgencyId;
 
   const {
     register,
@@ -78,18 +90,114 @@ export function GuardFormDialog({
     control,
   } = useForm();
 
-  // Загрузка филиалов и КПП
+  // Загрузка филиалов агентства
   useEffect(() => {
-    try {
-      const branchesData = db.getBranches();
-      setBranches(branchesData);
-
-      const checkpointsData = db.getCheckpoints();
-      setCheckpoints(checkpointsData);
-    } catch (error) {
-      console.error("Ошибка загрузки данных:", error);
+    if (!open) {
+      return;
     }
-  }, []);
+
+    if (
+      !authTokens?.accessToken ||
+      !authTokens?.tokenType ||
+      !effectiveAgencyId
+    ) {
+      setBranches([]);
+      setBranchesLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadBranches = async () => {
+      try {
+        setBranchesLoading(true);
+        const data = await getBranchesByAgencyId(effectiveAgencyId, {
+          accessToken: authTokens.accessToken,
+          tokenType: authTokens.tokenType,
+        });
+
+        if (!isMounted) {
+          return;
+        }
+
+        setBranches(data);
+      } catch (error) {
+        console.error("Ошибка загрузки филиалов:", error);
+        if (isMounted) {
+          toast.error("Не удалось загрузить филиалы");
+        }
+      } finally {
+        if (isMounted) {
+          setBranchesLoading(false);
+        }
+      }
+    };
+
+    loadBranches();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [open, effectiveAgencyId, authTokens]);
+
+  // Загрузка КПП выбранного филиала
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    if (!selectedBranch) {
+      setCheckpoints([]);
+      setCheckpointsLoading(false);
+      return;
+    }
+
+    if (!authTokens?.accessToken || !authTokens?.tokenType) {
+      setCheckpoints([]);
+      setCheckpointsLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadCheckpoints = async () => {
+      try {
+        setCheckpointsLoading(true);
+        const response = await getCheckpoints(
+          {
+            accessToken: authTokens.accessToken,
+            tokenType: authTokens.tokenType,
+          },
+          {
+            branchId: selectedBranch,
+            page: 0,
+            size: 25,
+          }
+        );
+
+        if (!isMounted) {
+          return;
+        }
+
+        setCheckpoints(response.items);
+      } catch (error) {
+        console.error("Ошибка загрузки КПП:", error);
+        if (isMounted) {
+          toast.error("Не удалось загрузить КПП");
+        }
+      } finally {
+        if (isMounted) {
+          setCheckpointsLoading(false);
+        }
+      }
+    };
+
+    loadCheckpoints();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [open, selectedBranch, authTokens]);
 
   // Заполнение формы при редактировании
   useEffect(() => {
@@ -169,6 +277,12 @@ export function GuardFormDialog({
     );
   };
 
+  const handleBranchChange = (branchId: string) => {
+    setSelectedBranch(branchId);
+    setSelectedCheckpoint("");
+    setCheckpoints([]);
+  };
+
   const handleDateSelect = (date: Date | undefined) => {
     setBirthDate(date);
     if (date) {
@@ -237,9 +351,9 @@ export function GuardFormDialog({
     setValue("phone", formatted);
   };
 
-  const availableCheckpoints = checkpoints.filter(
-    (cp) => cp.branchId === selectedBranch
-  );
+  const availableCheckpoints = selectedBranch
+    ? checkpoints.filter((cp) => cp.branchId === selectedBranch)
+    : [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -411,16 +525,26 @@ export function GuardFormDialog({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Филиал *</Label>
-                <Select value={selectedBranch} onValueChange={setSelectedBranch}>
+                <Select value={selectedBranch} onValueChange={handleBranchChange}>
                   <SelectTrigger>
                     <SelectValue placeholder="Выберите филиал" />
                   </SelectTrigger>
                   <SelectContent>
-                    {branches.map((branch) => (
-                      <SelectItem key={branch.id} value={branch.id}>
-                        {branch.name}
-                      </SelectItem>
-                    ))}
+                    {branchesLoading ? (
+                      <div className="px-3 py-2 text-sm text-muted-foreground">
+                        Загрузка...
+                      </div>
+                    ) : branches.length === 0 ? (
+                      <div className="px-3 py-2 text-sm text-muted-foreground">
+                        Нет доступных филиалов
+                      </div>
+                    ) : (
+                      branches.map((branch) => (
+                        <SelectItem key={branch.id} value={branch.id}>
+                          {branch.name}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -430,17 +554,33 @@ export function GuardFormDialog({
                 <Select
                   value={selectedCheckpoint}
                   onValueChange={setSelectedCheckpoint}
-                  disabled={!selectedBranch}
+                  disabled={!selectedBranch || checkpointsLoading}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Выберите КПП" />
+                    <SelectValue
+                      placeholder={
+                        selectedBranch ? "Выберите КПП" : "Сначала выберите филиал"
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
-                    {availableCheckpoints.map((cp) => (
-                      <SelectItem key={cp.id} value={cp.id}>
-                        {cp.name}
-                      </SelectItem>
-                    ))}
+                    {checkpointsLoading ? (
+                      <div className="px-3 py-2 text-sm text-muted-foreground">
+                        Загрузка...
+                      </div>
+                    ) : availableCheckpoints.length === 0 ? (
+                      <div className="px-3 py-2 text-sm text-muted-foreground">
+                        {selectedBranch
+                          ? "Нет доступных КПП"
+                          : "Выберите филиал"}
+                      </div>
+                    ) : (
+                      availableCheckpoints.map((cp) => (
+                        <SelectItem key={cp.id} value={cp.id}>
+                          {cp.name}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>

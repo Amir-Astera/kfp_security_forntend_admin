@@ -52,11 +52,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
-import { Guard } from "../types";
+import type { AuthResponse, Guard } from "../types";
 import { db } from "../services";
 import { toast } from "sonner@2.0.3";
 
-export function AgencyGuardsManager() {
+interface AgencyGuardsManagerProps {
+  authTokens?: AuthResponse | null;
+  agencyId?: string;
+}
+
+export function AgencyGuardsManager({ authTokens, agencyId }: AgencyGuardsManagerProps) {
   const [guards, setGuards] = useState<Guard[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
 
@@ -75,12 +80,12 @@ export function AgencyGuardsManager() {
   const { sortField, sortDirection, handleSort, sortData } = useSorting();
 
   // TODO: В реальном приложении получать из контекста аутентификации
-  const CURRENT_AGENCY_ID = "agency-1";
+  const CURRENT_AGENCY_ID = agencyId ?? "agency-1";
 
   useEffect(() => {
     loadGuards();
     loadBranches();
-  }, []);
+  }, [CURRENT_AGENCY_ID]);
 
   const loadGuards = () => {
     try {
@@ -439,6 +444,8 @@ export function AgencyGuardsManager() {
         onOpenChange={setIsFormOpen}
         guard={editingGuard}
         onSuccess={handleCreateOrUpdate}
+        authTokens={authTokens}
+        agencyId={CURRENT_AGENCY_ID}
       />
 
       {/* Delete Confirmation */}
