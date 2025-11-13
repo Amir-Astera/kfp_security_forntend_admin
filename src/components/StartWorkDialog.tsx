@@ -178,6 +178,14 @@ export function StartWorkDialog({
     setStep("photo");
   };
 
+  useEffect(() => {
+    if (open && step === "photo") {
+      startCamera();
+    } else if (!open || step !== "photo") {
+      stopCamera();
+    }
+  }, [open, step, startCamera, stopCamera]);
+
   const handleCancel = () => {
     stopCamera();
     setPhoto(null);
