@@ -100,6 +100,22 @@ export async function getCheckpoints(
   return response.json();
 }
 
+export async function getCheckpointById(
+  checkpointId: string,
+  tokens: Pick<AuthResponse, "accessToken" | "tokenType">
+): Promise<CheckpointApiItem> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/checkpoints/${checkpointId}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(tokens),
+    },
+  });
+
+  await handleErrorResponse(response, "Не удалось загрузить данные КПП");
+  return response.json();
+}
+
 export async function createCheckpoint(
   request: CreateCheckpointRequest,
   tokens: Pick<AuthResponse, "accessToken" | "tokenType">
