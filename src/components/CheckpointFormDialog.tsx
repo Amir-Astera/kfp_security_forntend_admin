@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useForm } from "react-hook-form@7.55.0";
 import {
   Dialog,
@@ -19,23 +19,22 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Textarea } from "./ui/textarea";
-import { db } from "../services";
 import type { Checkpoint } from "../types";
+
+export interface CheckpointFormValues {
+  name: string;
+  branchId: string;
+  description?: string;
+  status: "active" | "inactive";
+}
 
 interface CheckpointFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   checkpoint: Checkpoint | null;
-  onSave: (data: any) => void;
-}
-
-interface FormData {
-  name: string;
-  branchId: string;
-  branchName: string;
-  type: "entry" | "exit" | "universal";
-  description?: string;
-  status: "active" | "inactive";
+  onSave: (data: CheckpointFormValues) => void;
+  branches: Array<{ id: string; name: string }>;
+  isSubmitting?: boolean;
 }
 
 export function CheckpointFormDialog({
@@ -43,9 +42,9 @@ export function CheckpointFormDialog({
   onOpenChange,
   checkpoint,
   onSave,
+  branches,
+  isSubmitting,
 }: CheckpointFormDialogProps) {
-  const [branches, setBranches] = useState<any[]>([]);
-
   const {
     register,
     handleSubmit,
@@ -53,34 +52,27 @@ export function CheckpointFormDialog({
     setValue,
     watch,
     formState: { errors },
-  } = useForm<FormData>({
+  } = useForm<CheckpointFormValues>({
     defaultValues: {
       status: "active",
-      type: "universal",
     },
   });
 
-  const status = watch("status");
-  const type = watch("type");
-  const branchId = watch("branchId");
+  const branchIdRegister = register("branchId", {
+    required: "Выберите филиал",
+  });
+  const statusRegister = register("status", {
+    required: "Укажите статус",
+  });
 
-  // Загрузка филиалов
-  useEffect(() => {
-    try {
-      const data = db.getBranches();
-      setBranches(data);
-    } catch (error) {
-      console.error("Ошибка загрузки филиалов:", error);
-    }
-  }, []);
+  const status = watch("status");
+  const branchId = watch("branchId");
 
   useEffect(() => {
     if (checkpoint) {
       reset({
         name: checkpoint.name,
         branchId: checkpoint.branchId,
-        branchName: checkpoint.branchName,
-        type: checkpoint.type,
         description: checkpoint.description || "",
         status: checkpoint.status,
       });
@@ -88,20 +80,14 @@ export function CheckpointFormDialog({
       reset({
         name: "",
         branchId: "",
-        branchName: "",
-        type: "universal",
         description: "",
         status: "active",
       });
     }
   }, [checkpoint, reset]);
 
-  const onSubmit = (data: FormData) => {
-    const branch = branches.find((b) => b.id === data.branchId);
-    onSave({
-      ...data,
-      branchName: branch?.name || "",
-    });
+  const onSubmit = (data: CheckpointFormValues) => {
+    onSave(data);
   };
 
   return (
@@ -144,11 +130,7 @@ export function CheckpointFormDialog({
               <Select
                 value={branchId}
                 onValueChange={(value) => {
-                  setValue("branchId", value);
-                  const branch = branches.find((b) => b.id === value);
-                  if (branch) {
-                    setValue("branchName", branch.name);
-                  }
+                  setValue("branchId", value, { shouldValidate: true });
                 }}
               >
                 <SelectTrigger>
@@ -162,6 +144,7 @@ export function CheckpointFormDialog({
                   ))}
                 </SelectContent>
               </Select>
+              <input type="hidden" {...branchIdRegister} />
               {errors.branchId && (
                 <p className="text-destructive mt-1">
                   {errors.branchId.message}
@@ -198,6 +181,7 @@ export function CheckpointFormDialog({
                   <SelectItem value="inactive">Неактивен</SelectItem>
                 </SelectContent>
               </Select>
+              <input type="hidden" {...statusRegister} />
             </div>
           </div>
 
@@ -209,7 +193,9 @@ export function CheckpointFormDialog({
             >
               Отмена
             </Button>
-            <Button type="submit">Сохранить</Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Сохранение..." : "Сохранить"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

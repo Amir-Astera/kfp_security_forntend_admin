@@ -2,32 +2,11 @@ import type { AuthResponse } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
 
-export interface CreateBranchRequest {
-  name: string;
-  city: string;
-  region: string;
-  street: string;
-  house: string;
-  latitude?: number | null;
-  longitude?: number | null;
-  phone: string;
-  email: string;
-  active: boolean;
-}
-
-export interface UpdateBranchRequest extends CreateBranchRequest {}
-
-export interface BranchApiResponse {
+export interface CheckpointApiItem {
   id: string;
+  branchId: string;
   name: string;
-  city: string;
-  region: string;
-  street: string;
-  house: string;
-  latitude?: number | null;
-  longitude?: number | null;
-  phone: string;
-  email: string;
+  description?: string | null;
   active: boolean;
   version?: number;
   createdAt?: string;
@@ -35,18 +14,34 @@ export interface BranchApiResponse {
   [key: string]: unknown;
 }
 
-export interface BranchesQueryParams {
+export interface CheckpointsResponse {
+  items: CheckpointApiItem[];
+  page: number;
+  size: number;
+  total: number;
+}
+
+export interface CheckpointsQueryParams {
   page?: number;
   size?: number;
+  branchId?: string;
   active?: boolean;
   q?: string;
 }
 
-export interface BranchesResponse {
-  items: BranchApiResponse[];
-  page: number;
-  size: number;
-  total: number;
+export interface CreateCheckpointRequest {
+  branchId: string;
+  name: string;
+  description?: string | null;
+  active: boolean;
+  id?: string;
+}
+
+export interface UpdateCheckpointRequest {
+  name: string;
+  description?: string | null;
+  active: boolean;
+  version: number;
 }
 
 const buildQueryString = (params: Record<string, unknown>): string => {
@@ -81,19 +76,19 @@ const handleErrorResponse = async (response: Response, fallbackMessage: string) 
       message = errorBody.message;
     }
   } catch (error) {
-    console.error("Ошибка разбора ответа API филиалов", error);
+    console.error("Ошибка разбора ответа API КПП", error);
   }
 
   throw new Error(message);
 };
 
-export async function getBranches(
+export async function getCheckpoints(
   tokens: Pick<AuthResponse, "accessToken" | "tokenType">,
-  params: BranchesQueryParams = {}
-): Promise<BranchesResponse> {
+  params: CheckpointsQueryParams = {}
+): Promise<CheckpointsResponse> {
   const { page = 0, size = 25, ...rest } = params;
   const queryString = buildQueryString({ page, size, ...rest });
-  const response = await fetch(`${API_BASE_URL}/api/v1/branches${queryString}`, {
+  const response = await fetch(`${API_BASE_URL}/api/v1/checkpoints${queryString}`, {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
@@ -101,15 +96,15 @@ export async function getBranches(
     },
   });
 
-  await handleErrorResponse(response, "Не удалось загрузить филиалы");
+  await handleErrorResponse(response, "Не удалось загрузить список КПП");
   return response.json();
 }
 
-export async function createBranch(
-  request: CreateBranchRequest,
+export async function createCheckpoint(
+  request: CreateCheckpointRequest,
   tokens: Pick<AuthResponse, "accessToken" | "tokenType">
-): Promise<BranchApiResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/branches`, {
+): Promise<CheckpointApiItem> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/checkpoints`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -118,16 +113,16 @@ export async function createBranch(
     body: JSON.stringify(request),
   });
 
-  await handleErrorResponse(response, "Не удалось создать филиал");
+  await handleErrorResponse(response, "Не удалось создать КПП");
   return response.json();
 }
 
-export async function updateBranch(
-  branchId: string,
-  request: UpdateBranchRequest,
+export async function updateCheckpoint(
+  checkpointId: string,
+  request: UpdateCheckpointRequest,
   tokens: Pick<AuthResponse, "accessToken" | "tokenType">
-): Promise<BranchApiResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/branches/${branchId}`, {
+): Promise<CheckpointApiItem> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/checkpoints/${checkpointId}`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -136,6 +131,6 @@ export async function updateBranch(
     body: JSON.stringify(request),
   });
 
-  await handleErrorResponse(response, "Не удалось обновить филиал");
+  await handleErrorResponse(response, "Не удалось обновить КПП");
   return response.json();
 }

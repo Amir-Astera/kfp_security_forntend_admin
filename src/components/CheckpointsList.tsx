@@ -17,7 +17,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { Badge } from "./ui/badge";
 import { StatusBadge } from "./StatusBadge";
 import { CheckpointFormDialog } from "./CheckpointFormDialog";
 import { SortableTableHead } from "./SortableTableHead";
@@ -38,61 +37,169 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import { db } from "../services";
 import { toast } from "sonner";
-import type { Checkpoint } from "../types";
+import { getBranches as getBranchesRequest } from "../api/branches";
+import {
+  createCheckpoint as createCheckpointRequest,
+  getCheckpoints as getCheckpointsRequest,
+  updateCheckpoint as updateCheckpointRequest,
+} from "../api/checkpoints";
+import type { Checkpoint, AuthResponse } from "../types";
+import type { CheckpointFormValues } from "./CheckpointFormDialog";
+import type { CheckpointApiItem } from "../api/checkpoints";
 
-export function CheckpointsList() {
+interface CheckpointsListProps {
+  authTokens: AuthResponse | null;
+}
+
+export function CheckpointsList({ authTokens }: CheckpointsListProps) {
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
-  const [branches, setBranches] = useState<any[]>([]);
+  const [branches, setBranches] = useState<Array<{ id: string; name: string }>>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [branchFilter, setBranchFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingCheckpoint, setEditingCheckpoint] = useState<Checkpoint | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [pagination, setPagination] = useState({ page: 0, size: 25, total: 0 });
 
   const { sortField, sortDirection, handleSort, sortData } = useSorting();
 
-  // Загрузка данных
-  const loadCheckpoints = () => {
-    try {
-      const data = db.getCheckpoints();
-      setCheckpoints(data);
-    } catch (error) {
-      console.error("Ошибка загрузки КПП:", error);
-      toast.error("Не удалось загрузить КПП");
+  const formatDate = (value?: string) => {
+    if (!value) {
+      return "";
     }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+
+    return date.toLocaleString("ru-RU");
   };
 
-  const loadBranches = () => {
+  const mapCheckpointFromApi = (
+    item: CheckpointApiItem,
+    branchMap: Map<string, string>
+  ): Checkpoint => ({
+    id: item.id,
+    name: item.name,
+    branchId: item.branchId,
+    branchName: branchMap.get(item.branchId) ?? "—",
+    type: "universal",
+    description: item.description ?? "",
+    status: item.active ? "active" : "inactive",
+    createdAt: formatDate(item.createdAt),
+    guardsCount: 0,
+    active: item.active,
+    updatedAt: item.updatedAt,
+    version: item.version,
+  });
+
+  const refreshData = async () => {
+    if (!authTokens?.accessToken) {
+      return;
+    }
+
+    setIsLoading(true);
     try {
-      const data = db.getBranches();
-      setBranches(data);
+      const tokens = {
+        accessToken: authTokens.accessToken,
+        tokenType: authTokens.tokenType,
+      } as const;
+
+      const [branchesResponse, checkpointsResponse] = await Promise.all([
+        getBranchesRequest(tokens, { page: 0, size: 100 }),
+        getCheckpointsRequest(tokens, { page: 0, size: 100 }),
+      ]);
+
+      const branchOptions = branchesResponse.items.map((branch) => ({
+        id: branch.id,
+        name: branch.name,
+      }));
+
+      setBranches(branchOptions);
+
+      const branchMap = new Map(branchOptions.map((branch) => [branch.id, branch.name]));
+      setCheckpoints(
+        checkpointsResponse.items.map((item) => mapCheckpointFromApi(item, branchMap))
+      );
+      setPagination({
+        page: checkpointsResponse.page,
+        size: checkpointsResponse.size,
+        total: checkpointsResponse.total,
+      });
     } catch (error) {
-      console.error("Ошибка загрузки филиалов:", error);
+      console.error("Ошибка загрузки КПП:", error);
+      toast.error(error instanceof Error ? error.message : "Не удалось загрузить КПП");
+    } finally {
+      setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    loadCheckpoints();
-    loadBranches();
-  }, []);
+    if (!authTokens?.accessToken) {
+      setCheckpoints([]);
+      setBranches([]);
+      return;
+    }
 
-  const handleCreateOrUpdate = (data: any) => {
+    refreshData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authTokens?.accessToken, authTokens?.tokenType]);
+
+  const handleCreateOrUpdate = async (data: CheckpointFormValues) => {
+    if (!authTokens?.accessToken) {
+      toast.error("Для сохранения КПП необходимо выполнить вход");
+      return;
+    }
+
     try {
+      setIsSaving(true);
+      const tokens = {
+        accessToken: authTokens.accessToken,
+        tokenType: authTokens.tokenType,
+      } as const;
+
       if (editingCheckpoint) {
-        db.updateCheckpoint(editingCheckpoint.id, data);
+        if (typeof editingCheckpoint.version !== "number") {
+          toast.error("Не удалось определить версию КПП для обновления");
+          return;
+        }
+
+        await updateCheckpointRequest(
+          editingCheckpoint.id,
+          {
+            name: data.name,
+            description: data.description ?? "",
+            active: data.status === "active",
+            version: editingCheckpoint.version,
+          },
+          tokens
+        );
         toast.success("КПП успешно обновлен");
       } else {
-        db.createCheckpoint(data);
+        await createCheckpointRequest(
+          {
+            branchId: data.branchId,
+            name: data.name,
+            description: data.description ?? "",
+            active: data.status === "active",
+          },
+          tokens
+        );
         toast.success("КПП успешно создан");
       }
-      loadCheckpoints();
+
       setIsFormOpen(false);
       setEditingCheckpoint(null);
+      await refreshData();
     } catch (error) {
       console.error("Ошибка сохранения КПП:", error);
-      toast.error("Не удалось сохранить КПП");
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить КПП");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -101,31 +208,69 @@ export function CheckpointsList() {
     setIsFormOpen(true);
   };
 
-  const handleToggleStatus = (checkpoint: Checkpoint) => {
+  const handleToggleStatus = async (checkpoint: Checkpoint) => {
+    if (!authTokens?.accessToken) {
+      toast.error("Для изменения статуса необходимо выполнить вход");
+      return;
+    }
+
+    if (typeof checkpoint.version !== "number") {
+      toast.error("Не удалось определить версию КПП для изменения статуса");
+      return;
+    }
+
     try {
+      const tokens = {
+        accessToken: authTokens.accessToken,
+        tokenType: authTokens.tokenType,
+      } as const;
       const newStatus = checkpoint.status === "active" ? "inactive" : "active";
-      db.updateCheckpoint(checkpoint.id, { status: newStatus });
+
+      await updateCheckpointRequest(
+        checkpoint.id,
+        {
+          name: checkpoint.name,
+          description: checkpoint.description ?? "",
+          active: newStatus === "active",
+          version: checkpoint.version,
+        },
+        tokens
+      );
+
       toast.success(
         `КПП ${newStatus === "active" ? "активирован" : "деактивирован"}`
       );
-      loadCheckpoints();
+      await refreshData();
     } catch (error) {
       console.error("Ошибка изменения статуса:", error);
       toast.error("Не удалось изменить статус");
     }
   };
 
-  const handleDuplicate = (checkpoint: Checkpoint) => {
+  const handleDuplicate = async (checkpoint: Checkpoint) => {
+    if (!authTokens?.accessToken) {
+      toast.error("Для дублирования необходимо выполнить вход");
+      return;
+    }
+
     try {
-      db.createCheckpoint({
-        name: `${checkpoint.name} (копия)`,
-        branchId: checkpoint.branchId,
-        type: checkpoint.type,
-        description: checkpoint.description,
-        status: checkpoint.status,
-      });
+      const tokens = {
+        accessToken: authTokens.accessToken,
+        tokenType: authTokens.tokenType,
+      } as const;
+
+      await createCheckpointRequest(
+        {
+          branchId: checkpoint.branchId,
+          name: `${checkpoint.name} (копия)`,
+          description: checkpoint.description ?? "",
+          active: checkpoint.status === "active",
+        },
+        tokens
+      );
+
       toast.success("КПП успешно дублирован");
-      loadCheckpoints();
+      await refreshData();
     } catch (error) {
       console.error("Ошибка дублирования КПП:", error);
       toast.error("Не удалось дублировать КПП");
@@ -133,10 +278,11 @@ export function CheckpointsList() {
   };
 
   const filteredCheckpoints = checkpoints.filter((checkpoint) => {
+    const normalizedQuery = searchQuery.toLowerCase();
     const matchesSearch =
-      checkpoint.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      checkpoint.branchName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      checkpoint.description?.toLowerCase().includes(searchQuery.toLowerCase());
+      checkpoint.name.toLowerCase().includes(normalizedQuery) ||
+      checkpoint.branchName.toLowerCase().includes(normalizedQuery) ||
+      (checkpoint.description || "").toLowerCase().includes(normalizedQuery);
 
     const matchesBranch =
       branchFilter === "all" || checkpoint.branchId === branchFilter;
@@ -149,18 +295,6 @@ export function CheckpointsList() {
 
   const sortedCheckpoints = sortData(filteredCheckpoints);
 
-  const typeLabels = {
-    entry: "Въезд",
-    exit: "Выезд",
-    universal: "Универсальный",
-  };
-
-  const typeColors = {
-    entry: "bg-info/10 text-info border-info/20",
-    exit: "bg-warning/10 text-warning border-warning/20",
-    universal: "bg-success/10 text-success border-success/20",
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -168,7 +302,7 @@ export function CheckpointsList() {
         <div>
           <h2 className="text-foreground mb-1">Управление КПП</h2>
           <p className="text-muted-foreground">
-            Всего КПП: {checkpoints.length} • Активных:{" "}
+            Всего КПП: {pagination.total || checkpoints.length} • Активных:{" "}
             {checkpoints.filter((c) => c.status === "active").length}
           </p>
         </div>
@@ -177,10 +311,22 @@ export function CheckpointsList() {
             <Download className="w-4 h-4 mr-2" />
             Экспорт .xlsx
           </Button>
-          <Button onClick={() => {
-            setEditingCheckpoint(null);
-            setIsFormOpen(true);
-          }}>
+          <Button
+            onClick={() => {
+              if (!authTokens?.accessToken) {
+                toast.error("Для создания КПП необходимо выполнить вход");
+                return;
+              }
+
+              if (branches.length === 0) {
+                toast.error("Сначала создайте хотя бы один филиал");
+                return;
+              }
+
+              setEditingCheckpoint(null);
+              setIsFormOpen(true);
+            }}
+          >
             <Plus className="w-4 h-4 mr-2" />
             Добавить КПП
           </Button>
@@ -281,7 +427,16 @@ export function CheckpointsList() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sortedCheckpoints.length === 0 ? (
+              {isLoading ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={7}
+                    className="text-center py-12 text-muted-foreground"
+                  >
+                    Загрузка данных...
+                  </TableCell>
+                </TableRow>
+              ) : sortedCheckpoints.length === 0 ? (
                 <TableRow>
                   <TableCell
                     colSpan={7}
@@ -357,7 +512,7 @@ export function CheckpointsList() {
       {sortedCheckpoints.length > 0 && (
         <div className="flex items-center justify-between">
           <p className="text-muted-foreground">
-            Показано {sortedCheckpoints.length} из {checkpoints.length}
+            Показано {sortedCheckpoints.length} из {pagination.total || checkpoints.length}
           </p>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" disabled>
@@ -376,6 +531,8 @@ export function CheckpointsList() {
         onOpenChange={setIsFormOpen}
         checkpoint={editingCheckpoint}
         onSave={handleCreateOrUpdate}
+        branches={branches}
+        isSubmitting={isSaving}
       />
     </div>
   );

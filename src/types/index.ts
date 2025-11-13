@@ -37,6 +37,10 @@ export interface Branch {
   status: "active" | "inactive";
   createdAt: string;
   checkpointsCount: number;
+  active?: boolean;
+  house?: string;
+  updatedAt?: string;
+  version?: number;
 }
 
 // ============================================
@@ -52,6 +56,9 @@ export interface Checkpoint {
   status: "active" | "inactive";
   createdAt: string;
   guardsCount: number;
+  active?: boolean;
+  updatedAt?: string;
+  version?: number;
 }
 
 // ============================================

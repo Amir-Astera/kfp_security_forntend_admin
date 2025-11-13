@@ -168,7 +168,7 @@ export default function App() {
         case "branches":
           return <BranchesList authTokens={authTokens} />;
         case "checkpoints":
-          return <CheckpointsList />;
+          return <CheckpointsList authTokens={authTokens} />;
         case "agencies":
           return <AgenciesList />;
         case "guards":
