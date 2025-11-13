@@ -49,6 +49,30 @@ export interface GuestVisitsQueryParams {
   active?: boolean;
 }
 
+export interface CreateGuestVisitRequest {
+  guardId: string;
+  branchId: string;
+  checkpointId: string;
+  fullName: string;
+  iin?: string;
+  phone?: string;
+  company?: string;
+  visitPurpose?: string;
+  visitPlaces?: string[];
+  notes?: string;
+  kind?: string;
+  licensePlate?: string;
+  techPassportNo?: string;
+  ttnNo?: string;
+  cargoType?: string;
+  hasVehicle?: boolean;
+}
+
+export interface CompleteGuestVisitRequest {
+  exitAt?: string;
+  notes?: string;
+}
+
 const buildQueryString = (params: Record<string, unknown>): string => {
   const searchParams = new URLSearchParams();
 
@@ -82,6 +106,25 @@ const handleErrorResponse = async (response: Response, fallbackMessage: string) 
     }
   } catch (error) {
     console.error("Ошибка обработки ответа API визитов", error);
+  }
+
+  throw new Error(message);
+};
+
+const handleGuestVisitError = async (response: Response, fallbackMessage: string) => {
+  if (response.ok) {
+    return;
+  }
+
+  let message = fallbackMessage;
+
+  try {
+    const errorBody = await response.json();
+    if (typeof errorBody?.message === "string") {
+      message = errorBody.message;
+    }
+  } catch (error) {
+    console.error("Ошибка обработки ответа API визита", error);
   }
 
   throw new Error(message);
@@ -189,6 +232,41 @@ export async function getGuestVisits(
   });
 
   await handleErrorResponse(response, "Не удалось загрузить список визитов");
+  return response.json();
+}
+
+export async function createGuestVisit(
+  request: CreateGuestVisitRequest,
+  tokens: Pick<AuthResponse, "accessToken" | "tokenType">
+): Promise<GuestVisitApiItem> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/guests`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(tokens),
+    },
+    body: JSON.stringify(request),
+  });
+
+  await handleGuestVisitError(response, "Не удалось зарегистрировать визит");
+  return response.json();
+}
+
+export async function completeGuestVisit(
+  visitId: string,
+  request: CompleteGuestVisitRequest,
+  tokens: Pick<AuthResponse, "accessToken" | "tokenType">
+): Promise<GuestVisitApiItem> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/guests/${visitId}/complete`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(tokens),
+    },
+    body: JSON.stringify(request),
+  });
+
+  await handleGuestVisitError(response, "Не удалось завершить визит");
   return response.json();
 }
 

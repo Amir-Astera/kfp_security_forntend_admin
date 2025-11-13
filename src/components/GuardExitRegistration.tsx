@@ -7,19 +7,20 @@ import { Separator } from "./ui/separator";
 import { Switch } from "./ui/switch";
 import { User, Truck, Search, LogOut, Clock, Phone, Building2, Target, MapPin, X } from "lucide-react";
 import { toast } from "sonner@2.0.3";
-import { db } from "../services";
 import type { Visit } from "../types";
 
 // Функция для подсветки совпадений
 const highlightText = (text: string, query: string) => {
   if (!query.trim()) return text;
-  
-  const parts = text.split(new RegExp(`(${query})`, 'gi'));
+
+  const parts = text.split(new RegExp(`(${query})`, "gi"));
   return (
     <>
-      {parts.map((part, i) => 
+      {parts.map((part, i) =>
         part.toLowerCase() === query.toLowerCase() ? (
-          <mark key={i} className="bg-yellow-200 text-foreground font-medium">{part}</mark>
+          <mark key={i} className="bg-yellow-200 text-foreground font-medium">
+            {part}
+          </mark>
         ) : (
           <span key={i}>{part}</span>
         )
@@ -28,13 +29,17 @@ const highlightText = (text: string, query: string) => {
   );
 };
 
-export function GuardExitRegistration() {
+interface GuardExitRegistrationProps {
+  visits: Visit[];
+  onCompleteVisit: (visit: Visit) => Promise<Visit>;
+  isSubmitting?: boolean;
+}
+
+export function GuardExitRegistration({ visits, onCompleteVisit, isSubmitting }: GuardExitRegistrationProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [isTransportMode, setIsTransportMode] = useState(false);
 
-  // Получаем визиты на территории
-  const visits = db.getVisits ? db.getVisits() : [];
-  const onSiteVisits = visits.filter((v) => v.status === "on-site");
+  const onSiteVisits = useMemo(() => visits.filter((v) => v.status === "on-site"), [visits]);
 
   // Фильтрация по типу и поисковому запросу
   const filteredVisits = useMemo(() => {
@@ -72,43 +77,33 @@ export function GuardExitRegistration() {
     return filtered;
   }, [onSiteVisits, isTransportMode, searchQuery]);
 
-  const handleExit = (visit: Visit) => {
+  const handleExit = async (visit: Visit) => {
     const confirmed = window.confirm(
       `Зарегистрировать выезд для:\n${visit.fullName}\n${visit.company}?`
     );
 
-    if (confirmed) {
-      try {
-        const now = new Date();
-        const exitTime = `${now.toLocaleDateString("ru-RU", {
-          day: "2-digit",
-          month: "2-digit",
-          year: "numeric",
-        })} ${now.toLocaleTimeString("ru-RU", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })}`;
+    if (!confirmed) {
+      return;
+    }
 
-        if (db.updateVisit) {
-          db.updateVisit(visit.id, {
-            exitTime,
-            status: "exited",
-          });
-        }
+    try {
+      const updated = await onCompleteVisit(visit);
 
-        // Звуковое уведомление
-        const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBCh+zPLTgjMGHm7A7+OZRQ0PVKzn77BdGA==");
-        audio.play().catch(() => {});
+      const audio = new Audio(
+        "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBCh+zPLTgjMGHm7A7+OZRQ0PVKzn77BdGA=="
+      );
+      audio.play().catch(() => {});
 
-        toast.success("✅ Выезд зарегистрирован", {
-          description: `${visit.fullName} покинул территорию`,
-        });
+      toast.success("✅ Выезд зарегистрирован", {
+        description: `${updated.fullName} покинул территорию`,
+      });
 
-        setSearchQuery("");
-      } catch (error) {
-        console.error("Ошибка регистрации выезда:", error);
-        toast.error("Ошибка при регистрации выезда");
-      }
+      setSearchQuery("");
+    } catch (error) {
+      console.error("Ошибка регистрации выезда:", error);
+      const message = error instanceof Error ? error.message : "Ошибка при регистрации выезда";
+      toast.error(message);
+      throw error;
     }
   };
 
@@ -117,20 +112,20 @@ export function GuardExitRegistration() {
       const [datePart, timePart] = entryTime.split(" ");
       const [day, month, year] = datePart.split(".");
       const [hours, minutes] = timePart.split(":");
-      
+
       const entry = new Date(
-        parseInt(year),
-        parseInt(month) - 1,
-        parseInt(day),
-        parseInt(hours),
-        parseInt(minutes)
+        parseInt(year, 10),
+        parseInt(month, 10) - 1,
+        parseInt(day, 10),
+        parseInt(hours, 10),
+        parseInt(minutes, 10)
       );
-      
+
       const now = new Date();
       const diffMs = now.getTime() - entry.getTime();
       const hours2 = Math.floor(diffMs / (1000 * 60 * 60));
       const minutes2 = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-      
+
       return `${hours2}ч ${minutes2}м`;
     } catch {
       return "—";
@@ -143,16 +138,12 @@ export function GuardExitRegistration() {
       <div className="flex items-center justify-center gap-4">
         <div className="flex items-center gap-2">
           <User className={`h-5 w-5 ${!isTransportMode ? "text-primary" : "text-muted-foreground"}`} />
-          <span className={!isTransportMode ? "text-foreground" : "text-muted-foreground"}>
-            Гость
-          </span>
+          <span className={!isTransportMode ? "text-foreground" : "text-muted-foreground"}>Гость</span>
         </div>
         <Switch checked={isTransportMode} onCheckedChange={setIsTransportMode} />
         <div className="flex items-center gap-2">
           <Truck className={`h-5 w-5 ${isTransportMode ? "text-primary" : "text-muted-foreground"}`} />
-          <span className={isTransportMode ? "text-foreground" : "text-muted-foreground"}>
-            Транспорт
-          </span>
+          <span className={isTransportMode ? "text-foreground" : "text-muted-foreground"}>Транспорт</span>
         </div>
       </div>
 
@@ -178,6 +169,7 @@ export function GuardExitRegistration() {
             size="sm"
             className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
             onClick={() => setSearchQuery("")}
+            disabled={isSubmitting}
           >
             <X className="h-4 w-4" />
           </Button>
@@ -212,9 +204,7 @@ export function GuardExitRegistration() {
                   <div className="flex items-start justify-between">
                     <div>
                       <h4 className="text-foreground">{visit.fullName}</h4>
-                      <p className="text-muted-foreground">
-                        ИИН: {visit.iin}
-                      </p>
+                      <p className="text-muted-foreground">ИИН: {visit.iin}</p>
                     </div>
                     <Badge variant="secondary">На территории</Badge>
                   </div>
@@ -222,7 +212,7 @@ export function GuardExitRegistration() {
                   <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-muted-foreground">
                     <div className="flex items-center gap-2">
                       <Building2 className="h-4 w-4" />
-                      <span>{visit.company}</span>
+                      <span>{highlightText(visit.company, searchQuery)}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Phone className="h-4 w-4" />
@@ -252,7 +242,7 @@ export function GuardExitRegistration() {
                       <div className="grid grid-cols-2 gap-x-6 text-muted-foreground">
                         {visit.vehicleNumber && (
                           <div>
-                            <span className="text-foreground">Гос. номер:</span> {visit.vehicleNumber}
+                            <span className="text-foreground">Гос. номер:</span> {highlightText(visit.vehicleNumber, searchQuery)}
                           </div>
                         )}
                         {visit.techPassport && (
@@ -262,7 +252,7 @@ export function GuardExitRegistration() {
                         )}
                         {visit.ttn && (
                           <div>
-                            <span className="text-foreground">ТТН:</span> {visit.ttn}
+                            <span className="text-foreground">ТТН:</span> {highlightText(visit.ttn, searchQuery)}
                           </div>
                         )}
                         {visit.cargoType && (
@@ -276,9 +266,9 @@ export function GuardExitRegistration() {
                 </div>
 
                 {/* Кнопка выезда */}
-                <Button onClick={() => handleExit(visit)} className="gap-2">
+                <Button onClick={() => handleExit(visit)} className="gap-2" disabled={isSubmitting}>
                   <LogOut className="h-4 w-4" />
-                  Выезд
+                  {isSubmitting ? "Регистрация..." : "Выезд"}
                 </Button>
               </div>
             </Card>

@@ -9,8 +9,26 @@ import { Card } from "./ui/card";
 import { Separator } from "./ui/separator";
 import { User, Truck, CheckCircle2, Clock } from "lucide-react";
 import { toast } from "sonner@2.0.3";
-import { db } from "../services";
 import type { Visit } from "../types";
+
+interface GuardEntryRegistrationProps {
+  visits: Visit[];
+  onRegisterVisit: (payload: {
+    fullName: string;
+    iin: string;
+    phone: string;
+    company: string;
+    purpose: string;
+    places: string[];
+    notes?: string;
+    hasVehicle: boolean;
+    vehicleNumber?: string;
+    techPassport?: string;
+    ttn?: string;
+    cargoType?: string;
+  }) => Promise<Visit>;
+  isSubmitting?: boolean;
+}
 
 interface GuestFormData {
   fullName: string;
@@ -33,9 +51,8 @@ interface FormDraft {
   transport: Partial<GuestFormData>;
 }
 
-export function GuardEntryRegistration() {
+export function GuardEntryRegistration({ visits, onRegisterVisit, isSubmitting }: GuardEntryRegistrationProps) {
   const [isTransport, setIsTransport] = useState(false);
-  const [iinValue, setIinValue] = useState("");
   const [draft, setDraft] = useState<FormDraft>({
     guest: {},
     transport: {},
@@ -67,7 +84,6 @@ export function GuardEntryRegistration() {
   useEffect(() => {
     if (watchedIin && watchedIin.length === 12) {
       // Ищем предыдущие визиты по ИИН
-      const visits = db.getVisits ? db.getVisits() : [];
       const previousVisit = visits
         .filter((v) => v.iin === watchedIin)
         .sort((a, b) => {
@@ -124,9 +140,8 @@ export function GuardEntryRegistration() {
       return;
     }
 
-    const visits = db.getVisits ? db.getVisits() : [];
     const query = value.toLowerCase().trim();
-    
+
     // Получаем уникальные визиты по ИИН
     const uniqueVisitsMap = new Map<string, Visit>();
     visits.forEach(visit => {
@@ -201,44 +216,43 @@ export function GuardEntryRegistration() {
     };
   }, []);
 
-  const onSubmit = (data: GuestFormData) => {
+  const onSubmit = async (data: GuestFormData) => {
+    if (!onRegisterVisit) {
+      return;
+    }
+
     try {
-      // Создаем визит
-      const visitData = {
+      const created = await onRegisterVisit({
         fullName: data.fullName,
         iin: data.iin,
         phone: data.phone,
         company: data.company,
         purpose: data.purpose,
-        places: data.places.split(",").map((p) => p.trim()),
+        places: data.places.split(",").map((p) => p.trim()).filter(Boolean),
+        notes: data.notes,
         hasVehicle: isTransport,
-        vehicleNumber: data.vehicleNumber || null,
-        techPassport: data.techPassport || null,
-        ttn: data.ttn || null,
-        cargoType: data.cargoType || null,
-        branchId: "branch-1", // TODO: Получать из контекста охранника
-        checkpointId: "checkpoint-1", // TODO: Получать из контекста охранника
-        guardId: "guard-1", // TODO: Получать из аутентификации
-      };
-
-      if (db.createVisit) {
-        db.createVisit(visitData);
-      }
+        vehicleNumber: data.vehicleNumber || undefined,
+        techPassport: data.techPassport || undefined,
+        ttn: data.ttn || undefined,
+        cargoType: data.cargoType || undefined,
+      });
 
       // Звуковое уведомление
       const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBCh+zPLTgjMGHm7A7+OZRQ0PVKzn77BdGA==");
       audio.play().catch(() => {});
 
       toast.success("✅ Въезд зарегистрирован", {
-        description: `${data.fullName} • ${data.company}`,
+        description: `${created.fullName} • ${created.company}`,
       });
 
       reset();
-      // Очищаем черновики после успешной регистрации
       setDraft({ guest: {}, transport: {} });
+      setIsTransport(false);
     } catch (error) {
       console.error("Ошибка регистрации въезда:", error);
-      toast.error("Ошибка при регистрации въезда");
+      const message = error instanceof Error ? error.message : "Ошибка при регистрации въезда";
+      toast.error(message);
+      throw error;
     }
   };
 
@@ -636,12 +650,13 @@ export function GuardEntryRegistration() {
             onClick={() => {
               reset();
             }}
+            disabled={isSubmitting}
           >
             Очистить
           </Button>
-          <Button type="submit" className="gap-2">
+          <Button type="submit" className="gap-2" disabled={isSubmitting}>
             <CheckCircle2 className="h-4 w-4" />
-            Зарегистрировать въезд
+            {isSubmitting ? "Регистрация..." : "Зарегистрировать въезд"}
           </Button>
         </div>
       </form>
