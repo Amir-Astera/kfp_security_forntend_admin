@@ -8,7 +8,14 @@ import { GuardStatistics } from "./GuardStatistics";
 import { StartWorkDialog } from "./StartWorkDialog";
 import { LogIn, LogOut, BarChart3, Users, UserCheck, UserX } from "lucide-react";
 import { db } from "../services";
-import type { Branch, Checkpoint, Guard } from "../types";
+import { fetchGuardDashboardCards } from "../api/dashboard";
+import type {
+  AuthResponse,
+  Branch,
+  Checkpoint,
+  Guard,
+  GuardDashboardCardsResponse,
+} from "../types";
 
 interface GuardDashboardProps {
   guardId: string;
@@ -26,6 +33,9 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
   const [checkpoint, setCheckpoint] = useState<Checkpoint | null>(null);
   const [loadingGuard, setLoadingGuard] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [cardsData, setCardsData] = useState<GuardDashboardCardsResponse | null>(null);
+  const [cardsLoading, setCardsLoading] = useState(false);
+  const [cardsError, setCardsError] = useState<string | null>(null);
 
   // Загружаем данные охранника
   useEffect(() => {
@@ -143,6 +153,8 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
   useEffect(() => {
     if (!authTokens?.accessToken || !authTokens?.tokenType) {
       setCardsData(null);
+      setCardsError(null);
+      setCardsLoading(false);
       return;
     }
 
