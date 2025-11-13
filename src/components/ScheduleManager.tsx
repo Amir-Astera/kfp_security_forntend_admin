@@ -151,6 +151,7 @@ const getWeekDays = (date: Date): Date[] => {
 
 export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [currentWeekDate] = useState<Date>(() => new Date());
   const [viewMode, setViewMode] = useState<"week" | "month">("week");
   const [branchFilter, setBranchFilter] = useState<string>("all");
   const [branches, setBranches] = useState<any[]>([]);
@@ -255,7 +256,7 @@ export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
 
     let ignore = false;
     const branchId = branchFilter === "all" ? undefined : branchFilter;
-    const dateIso = formatIsoDate(selectedDate);
+    const dateIso = formatIsoDate(currentWeekDate);
 
     const loadWeekData = async () => {
       setIsViewLoading(true);
@@ -293,7 +294,7 @@ export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
     return () => {
       ignore = true;
     };
-  }, [authTokens, branchFilter, isAuthorized, selectedDate, viewMode]);
+  }, [authTokens, branchFilter, currentWeekDate, isAuthorized, viewMode]);
 
   useEffect(() => {
     if (!isAuthorized || viewMode !== "month") {
@@ -354,7 +355,7 @@ export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
     );
   }
 
-  const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
+  const weekDays = useMemo(() => getWeekDays(currentWeekDate), [currentWeekDate]);
   const weekShiftsByDate = useMemo(() => groupByDate(weekShifts), [weekShifts]);
   const monthShiftsByDate = useMemo(() => groupByDate(monthShifts), [monthShifts]);
   const monthDates = useMemo(() => {
