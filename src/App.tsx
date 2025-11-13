@@ -164,7 +164,7 @@ export default function App() {
     if (userRole === "superadmin") {
       switch (currentPage) {
         case "dashboard":
-          return <SuperadminDashboard />;
+          return <SuperadminDashboard authTokens={authTokens} />;
         case "branches":
           return <BranchesList authTokens={authTokens} />;
         case "checkpoints":
@@ -190,7 +190,7 @@ export default function App() {
             />
           );
         default:
-          return <SuperadminDashboard />;
+          return <SuperadminDashboard authTokens={authTokens} />;
       }
     } else if (userRole === "agency") {
       // Интерфейс агентства

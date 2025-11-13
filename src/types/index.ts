@@ -265,6 +265,72 @@ export interface DashboardStats {
   avgTimeOnSite: string;
 }
 
+export type DashboardPeriod = "TODAY" | "WEEK" | "MONTH" | "YEAR" | "CUSTOM";
+
+export interface SuperDashboardCards {
+  branchesActive: number;
+  checkpoints: number;
+  agenciesActive: number;
+  guardsActive: number;
+  guardsOnShiftNow: number;
+  visitsThisMonth: number;
+  visitsThisMonthDeltaPct?: number;
+  visitsToday: number;
+  onPremisesNow: number;
+  avgStayMinutes: number;
+}
+
+export interface SuperDashboardVisitByDay {
+  date: string;
+  count: number;
+}
+
+export interface SuperDashboardMonthByBranch {
+  branchId: string;
+  branchName: string;
+  count: number;
+}
+
+export interface SuperDashboardTopCompany {
+  company: string;
+  count: number;
+}
+
+export interface SuperDashboardPurposeShare {
+  purpose: string;
+  count: number;
+  percent: number;
+}
+
+export interface SuperDashboardGuardHeatmap {
+  guardId: string;
+  guardName: string;
+  hours: number[];
+}
+
+export interface SuperDashboardVisitSummary {
+  id: string;
+  entryAt: string;
+  exitAt?: string | null;
+  fullName: string;
+  iin: string;
+  company: string;
+  purpose: string;
+  branchName: string;
+  checkpointName: string;
+  status: string;
+}
+
+export interface SuperDashboardResponse {
+  cards: SuperDashboardCards;
+  visitsByDay7: SuperDashboardVisitByDay[];
+  monthByBranch: SuperDashboardMonthByBranch[];
+  topCompanies10: SuperDashboardTopCompany[];
+  purposeShare: SuperDashboardPurposeShare[];
+  guardHeatmap: SuperDashboardGuardHeatmap[];
+  latestVisits: SuperDashboardVisitSummary[];
+}
+
 // ============================================
 // ФИЛЬТРЫ
 // ============================================
