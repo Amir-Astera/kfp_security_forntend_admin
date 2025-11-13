@@ -6,6 +6,8 @@ export interface GuestVisitApiItem {
   id: string;
   guardId?: string;
   guardName?: string;
+  agencyId?: string;
+  agencyName?: string;
   branchId?: string;
   branchName?: string;
   checkpointId?: string;
@@ -159,13 +161,13 @@ export const mapGuestVisitToVisit = (item: GuestVisitApiItem): Visit => {
     ttn: item.ttnNo ?? undefined,
     cargoType: item.cargoType ?? undefined,
     branchId: item.branchId ?? "",
-    branchName: item.branchName ?? item.branchId ?? "",
+    branchName: item.branchName ?? "",
     checkpointId: item.checkpointId ?? "",
-    checkpointName: item.checkpointName ?? item.checkpointId ?? "",
+    checkpointName: item.checkpointName ?? "",
     guardId: item.guardId ?? "",
-    guardName: item.guardName ?? item.guardId ?? "",
-    agencyId: "",
-    agencyName: "",
+    guardName: item.guardName ?? "",
+    agencyId: item.agencyId ?? "",
+    agencyName: item.agencyName ?? "",
     status: item.active ? "on-site" : "left",
     createdAt,
     updatedAt,

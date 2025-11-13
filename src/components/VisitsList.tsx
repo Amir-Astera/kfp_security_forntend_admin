@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -27,22 +27,43 @@ import { toast } from "sonner@2.0.3";
 import { useSorting } from "./hooks/useSorting";
 import { exportVisits } from "../utils/export";
 import { getGuestVisits, mapGuestVisitToVisit, getVisitPurposes } from "../api/visits";
-import { getBranches } from "../api/branches";
-import { getCheckpoints } from "../api/checkpoints";
+import {
+  getBranches,
+  getBranchById,
+  type BranchApiResponse,
+} from "../api/branches";
+import {
+  getCheckpoints,
+  getCheckpointById,
+  type CheckpointApiItem,
+} from "../api/checkpoints";
+import { fetchGuardByIdFromApi } from "../api/guards";
 
 interface VisitsListProps {
   authTokens: AuthResponse | null;
 }
 
+type GuardDirectoryEntry = {
+  name: string;
+  agencyName?: string;
+};
+
 export function VisitsList({ authTokens }: VisitsListProps) {
   const [visits, setVisits] = useState<Visit[]>([]);
-  const [branches, setBranches] = useState<any[]>([]);
-  const [checkpoints, setCheckpoints] = useState<any[]>([]);
+  const [branches, setBranches] = useState<BranchApiResponse[]>([]);
+  const [checkpoints, setCheckpoints] = useState<CheckpointApiItem[]>([]);
+  const [guardDetails, setGuardDetails] = useState<Record<string, GuardDirectoryEntry>>({});
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [totalItems, setTotalItems] = useState(0);
+
+  const directoryFetchState = useRef({
+    branches: new Set<string>(),
+    checkpoints: new Set<string>(),
+    guards: new Set<string>(),
+  });
 
   // Пагинация (пока только первая страница)
   const [currentPage] = useState(0);
@@ -65,7 +86,7 @@ export function VisitsList({ authTokens }: VisitsListProps) {
   const branchNameMap = useMemo(() => {
     const map: Record<string, string> = {};
 
-    branches.forEach((branch: any) => {
+    branches.forEach((branch) => {
       if (branch?.id) {
         map[branch.id] = branch.name ?? String(branch.id);
       }
@@ -77,7 +98,7 @@ export function VisitsList({ authTokens }: VisitsListProps) {
   const checkpointNameMap = useMemo(() => {
     const map: Record<string, string> = {};
 
-    checkpoints.forEach((checkpoint: any) => {
+    checkpoints.forEach((checkpoint) => {
       if (checkpoint?.id) {
         map[checkpoint.id] = checkpoint.name ?? String(checkpoint.id);
       }
@@ -168,6 +189,169 @@ export function VisitsList({ authTokens }: VisitsListProps) {
     loadDirectories();
   }, [authTokens, isAuthorized]);
 
+  useEffect(() => {
+    if (!isAuthorized || !authTokens?.accessToken || !authTokens?.tokenType) {
+      return;
+    }
+
+    const branchIds: string[] = [];
+    const checkpointIds: string[] = [];
+    const guardIds: string[] = [];
+
+    visits.forEach((visit) => {
+      if (visit.branchId) {
+        const branchName = visit.branchName?.trim();
+        const isBranchKnown = Boolean(branchName && branchName !== visit.branchId);
+        if (
+          !isBranchKnown &&
+          !branchNameMap[visit.branchId] &&
+          !directoryFetchState.current.branches.has(visit.branchId)
+        ) {
+          directoryFetchState.current.branches.add(visit.branchId);
+          branchIds.push(visit.branchId);
+        }
+      }
+
+      if (visit.checkpointId) {
+        const checkpointName = visit.checkpointName?.trim();
+        const isCheckpointKnown = Boolean(
+          checkpointName && checkpointName !== visit.checkpointId,
+        );
+        if (
+          !isCheckpointKnown &&
+          !checkpointNameMap[visit.checkpointId] &&
+          !directoryFetchState.current.checkpoints.has(visit.checkpointId)
+        ) {
+          directoryFetchState.current.checkpoints.add(visit.checkpointId);
+          checkpointIds.push(visit.checkpointId);
+        }
+      }
+
+      if (visit.guardId) {
+        const guardName = visit.guardName?.trim();
+        const guardInfo = guardDetails[visit.guardId];
+        const isGuardKnown = Boolean(guardName && guardName !== visit.guardId);
+        if (
+          !isGuardKnown &&
+          !guardInfo &&
+          !directoryFetchState.current.guards.has(visit.guardId)
+        ) {
+          directoryFetchState.current.guards.add(visit.guardId);
+          guardIds.push(visit.guardId);
+        }
+      }
+    });
+
+    if (branchIds.length === 0 && checkpointIds.length === 0 && guardIds.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const tokens = {
+      accessToken: authTokens.accessToken,
+      tokenType: authTokens.tokenType,
+    };
+
+    const fetchDirectories = async () => {
+      try {
+        const [branchesData, checkpointsData, guardsData] = await Promise.all([
+          Promise.all(
+            branchIds.map(async (id) => {
+              try {
+                return await getBranchById(id, tokens);
+              } catch (error) {
+                console.error(`Не удалось загрузить данные филиала ${id}`, error);
+                return null;
+              }
+            }),
+          ),
+          Promise.all(
+            checkpointIds.map(async (id) => {
+              try {
+                return await getCheckpointById(id, tokens);
+              } catch (error) {
+                console.error(`Не удалось загрузить данные КПП ${id}`, error);
+                return null;
+              }
+            }),
+          ),
+          Promise.all(
+            guardIds.map(async (id) => {
+              try {
+                return await fetchGuardByIdFromApi(id, tokens);
+              } catch (error) {
+                console.error(`Не удалось загрузить данные охранника ${id}`, error);
+                return null;
+              }
+            }),
+          ),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        if (branchesData.some(Boolean)) {
+          setBranches((prev) => {
+            const existingIds = new Set(prev.map((branch) => branch.id));
+            const newItems = branchesData.filter(
+              (branch): branch is BranchApiResponse =>
+                Boolean(branch && !existingIds.has(branch.id)),
+            );
+            return newItems.length ? [...prev, ...newItems] : prev;
+          });
+        }
+
+        if (checkpointsData.some(Boolean)) {
+          setCheckpoints((prev) => {
+            const existingIds = new Set(prev.map((checkpoint) => checkpoint.id));
+            const newItems = checkpointsData.filter(
+              (checkpoint): checkpoint is CheckpointApiItem =>
+                Boolean(checkpoint && !existingIds.has(checkpoint.id)),
+            );
+            return newItems.length ? [...prev, ...newItems] : prev;
+          });
+        }
+
+        if (guardsData.some(Boolean)) {
+          setGuardDetails((prev) => {
+            const next = { ...prev };
+            guardsData.forEach((guard) => {
+              if (guard) {
+                const existing = prev[guard.id];
+                next[guard.id] = {
+                  name: guard.fullName ?? existing?.name ?? guard.id,
+                  agencyName: guard.agencyName ?? existing?.agencyName ?? "",
+                };
+              }
+            });
+            return next;
+          });
+        }
+      } catch (error) {
+        console.error("Не удалось загрузить справочные данные визитов", error);
+      } finally {
+        branchIds.forEach((id) => directoryFetchState.current.branches.delete(id));
+        checkpointIds.forEach((id) => directoryFetchState.current.checkpoints.delete(id));
+        guardIds.forEach((id) => directoryFetchState.current.guards.delete(id));
+      }
+    };
+
+    fetchDirectories();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    authTokens,
+    branchNameMap,
+    checkpointNameMap,
+    guardDetails,
+    isAuthorized,
+    visits,
+  ]);
+
   const handleViewDetails = (visit: Visit) => {
     setSelectedVisit(visit);
     setDetailDialogOpen(true);
@@ -224,20 +408,39 @@ export function VisitsList({ authTokens }: VisitsListProps) {
   const decoratedVisits = useMemo(
     () =>
       sortedVisits.map((visit) => {
-        const branchName = visit.branchName?.trim()
-          ? visit.branchName
-          : branchNameMap[visit.branchId] ?? "";
-        const checkpointName = visit.checkpointName?.trim()
-          ? visit.checkpointName
-          : checkpointNameMap[visit.checkpointId] ?? "";
+        const branchNameFromVisit = visit.branchName?.trim();
+        const checkpointNameFromVisit = visit.checkpointName?.trim();
+        const guardNameFromVisit = visit.guardName?.trim();
+        const guardInfo = visit.guardId ? guardDetails[visit.guardId] : undefined;
+
+        const branchName =
+          branchNameFromVisit && branchNameFromVisit !== visit.branchId
+            ? branchNameFromVisit
+            : branchNameMap[visit.branchId] ?? "";
+
+        const checkpointName =
+          checkpointNameFromVisit && checkpointNameFromVisit !== visit.checkpointId
+            ? checkpointNameFromVisit
+            : checkpointNameMap[visit.checkpointId] ?? "";
+
+        const guardName =
+          guardNameFromVisit && guardNameFromVisit !== visit.guardId
+            ? guardNameFromVisit
+            : guardInfo?.name ?? "";
+
+        const agencyName = visit.agencyName?.trim()
+          ? visit.agencyName
+          : guardInfo?.agencyName ?? "";
 
         return {
           ...visit,
           branchName,
           checkpointName,
+          guardName,
+          agencyName,
         };
       }),
-    [branchNameMap, checkpointNameMap, sortedVisits],
+    [branchNameMap, checkpointNameMap, guardDetails, sortedVisits],
   );
 
   const selectedVisitWithNames = useMemo(() => {
@@ -245,19 +448,37 @@ export function VisitsList({ authTokens }: VisitsListProps) {
       return null;
     }
 
-    const branchName = selectedVisit.branchName?.trim()
-      ? selectedVisit.branchName
-      : branchNameMap[selectedVisit.branchId] ?? "";
-    const checkpointName = selectedVisit.checkpointName?.trim()
-      ? selectedVisit.checkpointName
-      : checkpointNameMap[selectedVisit.checkpointId] ?? "";
+    const branchNameFromVisit = selectedVisit.branchName?.trim();
+    const checkpointNameFromVisit = selectedVisit.checkpointName?.trim();
+    const guardNameFromVisit = selectedVisit.guardName?.trim();
+    const guardInfo = selectedVisit.guardId
+      ? guardDetails[selectedVisit.guardId]
+      : undefined;
+
+    const branchName =
+      branchNameFromVisit && branchNameFromVisit !== selectedVisit.branchId
+        ? branchNameFromVisit
+        : branchNameMap[selectedVisit.branchId] ?? "";
+    const checkpointName =
+      checkpointNameFromVisit && checkpointNameFromVisit !== selectedVisit.checkpointId
+        ? checkpointNameFromVisit
+        : checkpointNameMap[selectedVisit.checkpointId] ?? "";
+    const guardName =
+      guardNameFromVisit && guardNameFromVisit !== selectedVisit.guardId
+        ? guardNameFromVisit
+        : guardInfo?.name ?? "";
+    const agencyName = selectedVisit.agencyName?.trim()
+      ? selectedVisit.agencyName
+      : guardInfo?.agencyName ?? "";
 
     return {
       ...selectedVisit,
       branchName,
       checkpointName,
+      guardName,
+      agencyName,
     };
-  }, [branchNameMap, checkpointNameMap, selectedVisit]);
+  }, [branchNameMap, checkpointNameMap, guardDetails, selectedVisit]);
 
   const onSiteCount = visits.filter((v) => v.status === "on-site").length;
   const vehicleCount = visits.filter((v) => v.hasVehicle).length;
@@ -309,7 +530,7 @@ export function VisitsList({ authTokens }: VisitsListProps) {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все филиалы</SelectItem>
-                {branches.map((branch: any) => (
+                {branches.map((branch) => (
                   <SelectItem key={branch.id} value={branch.id}>
                     {branch.name}
                   </SelectItem>
@@ -323,7 +544,7 @@ export function VisitsList({ authTokens }: VisitsListProps) {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все КПП</SelectItem>
-                {checkpoints.map((checkpoint: any) => (
+                {checkpoints.map((checkpoint) => (
                   <SelectItem key={checkpoint.id} value={checkpoint.id}>
                     {checkpoint.name}
                   </SelectItem>

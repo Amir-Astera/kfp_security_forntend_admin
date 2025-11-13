@@ -105,6 +105,22 @@ export async function getBranches(
   return response.json();
 }
 
+export async function getBranchById(
+  branchId: string,
+  tokens: Pick<AuthResponse, "accessToken" | "tokenType">
+): Promise<BranchApiResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/branches/${branchId}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(tokens),
+    },
+  });
+
+  await handleErrorResponse(response, "Не удалось загрузить данные филиала");
+  return response.json();
+}
+
 export async function createBranch(
   request: CreateBranchRequest,
   tokens: Pick<AuthResponse, "accessToken" | "tokenType">

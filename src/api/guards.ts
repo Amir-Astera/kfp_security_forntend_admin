@@ -658,6 +658,21 @@ async function parseGuardsError(response: Response): Promise<never> {
   throw new Error(message);
 }
 
+async function parseGuardDetailError(response: Response): Promise<never> {
+  let message = "Не удалось загрузить данные охранника";
+
+  try {
+    const body = await response.json();
+    if (typeof body?.message === "string") {
+      message = body.message;
+    }
+  } catch (error) {
+    console.error("Ошибка разбора ответа сервера охранника", error);
+  }
+
+  throw new Error(message);
+}
+
 const formatTime = (value?: string) => {
   if (!value) return "";
   return value.slice(0, 5);
@@ -701,6 +716,23 @@ export async function fetchGuardsFromApi(
 
   if (!response.ok) {
     return parseGuardsError(response);
+  }
+
+  return response.json();
+}
+
+export async function fetchGuardByIdFromApi(
+  guardId: string,
+  tokens: Pick<AuthResponse, "accessToken" | "tokenType">
+): Promise<GuardApiItem> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/guards/${guardId}`, {
+    headers: {
+      Authorization: `${tokens.tokenType} ${tokens.accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    return parseGuardDetailError(response);
   }
 
   return response.json();
