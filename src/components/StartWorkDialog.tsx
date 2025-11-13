@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -39,9 +39,9 @@ export function StartWorkDialog({
   const streamRef = useRef<MediaStream | null>(null);
 
   // Запуск камеры
-  const startCamera = async () => {
+  const startCamera = useCallback(async () => {
     setCameraError(null);
-    
+
     try {
       // Проверяем поддержку камеры
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -58,6 +58,19 @@ export function StartWorkDialog({
         streamRef.current = stream;
         setIsCameraActive(true);
         setCameraError(null);
+      } else {
+        // Ожидаем пока видеоэлемент будет готов и назначаем поток
+        const waitForVideoElement = () => {
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            streamRef.current = stream;
+            setIsCameraActive(true);
+            setCameraError(null);
+          } else {
+            requestAnimationFrame(waitForVideoElement);
+          }
+        };
+        requestAnimationFrame(waitForVideoElement);
       }
     } catch (error: any) {
       // Обрабатываем ошибку камеры
@@ -78,16 +91,16 @@ export function StartWorkDialog({
       setCameraError(errorMessage);
       setIsCameraActive(false);
     }
-  };
+  }, []);
 
   // Остановка камеры
-  const stopCamera = () => {
+  const stopCamera = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
       setIsCameraActive(false);
     }
-  };
+  }, []);
 
   // Сделать фото
   const takePhoto = () => {
@@ -111,7 +124,6 @@ export function StartWorkDialog({
   const retakePhoto = () => {
     setPhoto(null);
     setStep("photo");
-    startCamera();
   };
 
   // Подтвердить начало смены
@@ -162,8 +174,20 @@ export function StartWorkDialog({
   // Переход к фото
   const handleNext = () => {
     setStep("photo");
-    startCamera();
   };
+
+  // Автоматический запуск камеры после перехода на шаг "Фото"
+  useEffect(() => {
+    if (open && step === "photo") {
+      const frame = requestAnimationFrame(() => {
+        startCamera();
+      });
+
+      return () => {
+        cancelAnimationFrame(frame);
+      };
+    }
+  }, [open, step, startCamera]);
 
   // Очистка при закрытии
   useEffect(() => {
