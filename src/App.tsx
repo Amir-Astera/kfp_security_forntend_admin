@@ -253,7 +253,14 @@ export default function App() {
       }
     } else if (userRole === "guard") {
       // Интерфейс охранника - только дашборд
-      return <GuardDashboard guardId={userId} guardName={userName} onLogout={handleLogout} />;
+      return (
+        <GuardDashboard
+          guardId={userId}
+          guardName={userName}
+          onLogout={handleLogout}
+          authTokens={authTokens}
+        />
+      );
     }
   };
 

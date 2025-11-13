@@ -209,6 +209,22 @@ export interface GuardListResponse {
 }
 
 // ============================================
+// ДАШБОРД ОХРАННИКА
+// ============================================
+export interface GuardDashboardCardsResponse {
+  presentNow: number;
+  arrivedThisShift: number;
+  leftThisShift: number;
+}
+
+export type GuardGuestKindScope = "SHIFT" | "PRESENT";
+
+export interface GuardGuestKindItem {
+  kind: string;
+  count: number;
+}
+
+// ============================================
 // ВИЗИТЫ
 // ============================================
 export interface Visit {
