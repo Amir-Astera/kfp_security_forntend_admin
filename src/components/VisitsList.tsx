@@ -62,6 +62,30 @@ export function VisitsList({ authTokens }: VisitsListProps) {
   const purposes = useMemo(() => getVisitPurposes(), []);
   const isAuthorized = Boolean(authTokens?.accessToken && authTokens?.tokenType);
 
+  const branchNameMap = useMemo(() => {
+    const map: Record<string, string> = {};
+
+    branches.forEach((branch: any) => {
+      if (branch?.id) {
+        map[branch.id] = branch.name ?? String(branch.id);
+      }
+    });
+
+    return map;
+  }, [branches]);
+
+  const checkpointNameMap = useMemo(() => {
+    const map: Record<string, string> = {};
+
+    checkpoints.forEach((checkpoint: any) => {
+      if (checkpoint?.id) {
+        map[checkpoint.id] = checkpoint.name ?? String(checkpoint.id);
+      }
+    });
+
+    return map;
+  }, [checkpoints]);
+
   useEffect(() => {
     if (!isAuthorized) {
       return;
@@ -196,6 +220,44 @@ export function VisitsList({ authTokens }: VisitsListProps) {
   });
 
   const sortedVisits = sortData(filteredVisits);
+
+  const decoratedVisits = useMemo(
+    () =>
+      sortedVisits.map((visit) => {
+        const branchName = visit.branchName?.trim()
+          ? visit.branchName
+          : branchNameMap[visit.branchId] ?? "";
+        const checkpointName = visit.checkpointName?.trim()
+          ? visit.checkpointName
+          : checkpointNameMap[visit.checkpointId] ?? "";
+
+        return {
+          ...visit,
+          branchName,
+          checkpointName,
+        };
+      }),
+    [branchNameMap, checkpointNameMap, sortedVisits],
+  );
+
+  const selectedVisitWithNames = useMemo(() => {
+    if (!selectedVisit) {
+      return null;
+    }
+
+    const branchName = selectedVisit.branchName?.trim()
+      ? selectedVisit.branchName
+      : branchNameMap[selectedVisit.branchId] ?? "";
+    const checkpointName = selectedVisit.checkpointName?.trim()
+      ? selectedVisit.checkpointName
+      : checkpointNameMap[selectedVisit.checkpointId] ?? "";
+
+    return {
+      ...selectedVisit,
+      branchName,
+      checkpointName,
+    };
+  }, [branchNameMap, checkpointNameMap, selectedVisit]);
 
   const onSiteCount = visits.filter((v) => v.status === "on-site").length;
   const vehicleCount = visits.filter((v) => v.hasVehicle).length;
@@ -378,14 +440,14 @@ export function VisitsList({ authTokens }: VisitsListProps) {
                       Загрузка визитов...
                     </TableCell>
                   </TableRow>
-                ) : !sortedVisits || sortedVisits.length === 0 ? (
+                ) : decoratedVisits.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={14} className="text-center py-12 text-muted-foreground">
                       Визиты не найдены
                     </TableCell>
                   </TableRow>
                 ) : (
-                  sortedVisits.map((visit) => (
+                  decoratedVisits.map((visit) => (
                     <TableRow key={visit.id}>
                       <TableCell className="whitespace-nowrap">
                         <div className="flex items-start gap-2">
@@ -527,7 +589,7 @@ export function VisitsList({ authTokens }: VisitsListProps) {
 
       {/* Detail Dialog */}
       <VisitDetailDialog
-        visit={selectedVisit}
+        visit={selectedVisitWithNames}
         open={detailDialogOpen}
         onOpenChange={setDetailDialogOpen}
       />
