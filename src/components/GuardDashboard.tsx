@@ -330,6 +330,12 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
     onLogout();
   };
 
+  const handleStartCancelled = () => {
+    setShowStartDialog(false);
+    setWorkStarted(false);
+    handleShiftHandover();
+  };
+
   const handleVisitCreated = useCallback(
     async (payload: {
       fullName: string;
@@ -586,6 +592,7 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
         branch={branch}
         checkpoint={checkpoint}
         onConfirm={handleStartWork}
+        onCancel={handleStartCancelled}
       />
     </>
   );
