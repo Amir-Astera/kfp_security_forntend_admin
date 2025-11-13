@@ -193,6 +193,9 @@ export interface GuardApiItem {
   workingDays: string[];
   active: boolean;
   status?: string;
+  branchName?: string;
+  checkpointName?: string;
+  agencyName?: string;
   version?: number;
   createdAt?: string;
   updatedAt?: string;
@@ -413,6 +416,11 @@ export interface CreateGuardRequest {
   shiftEnd: string;
   workDays: string[];
   loginEmail: string;
+  password?: string;
+  status?: "active" | "inactive" | "vacation" | "sick";
+  active?: boolean;
+  loginPassword?: string;
+  workingDays?: string[];
 }
 
 export interface UpdateGuardRequest extends Partial<CreateGuardRequest> {

@@ -8,16 +8,7 @@ import {
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Avatar, AvatarFallback } from "./ui/avatar";
-import {
-  Monitor,
-  MapPin,
-  Clock,
-  Image as ImageIcon,
-  Wifi,
-  Smartphone,
-  Sun,
-  Moon,
-} from "lucide-react";
+import { Monitor, MapPin, Clock, Wifi, Smartphone, Sun, Moon } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -34,7 +25,6 @@ interface ShiftSession {
   device: string;
   ipAddress: string;
   screenTime: number; // минуты
-  hasPhoto: boolean;
 }
 
 export interface ShiftDetailData {
@@ -48,6 +38,7 @@ export interface ShiftDetailData {
   timeRangeLabel: string;
   shiftType: "day" | "night";
   status: "scheduled" | "completed" | "missed";
+  rawStatus?: string;
 }
 
 interface ShiftDetailDialogProps {
@@ -64,7 +55,6 @@ export function ShiftDetailDialog({ shift, onClose }: ShiftDetailDialogProps) {
       device: "iPhone 13 Pro",
       ipAddress: "192.168.1.45",
       screenTime: 245,
-      hasPhoto: true,
     },
     {
       id: "2",
@@ -73,7 +63,6 @@ export function ShiftDetailDialog({ shift, onClose }: ShiftDetailDialogProps) {
       device: "iPhone 13 Pro",
       ipAddress: "192.168.1.45",
       screenTime: 250,
-      hasPhoto: true,
     },
     {
       id: "3",
@@ -82,7 +71,6 @@ export function ShiftDetailDialog({ shift, onClose }: ShiftDetailDialogProps) {
       device: "iPhone 13 Pro",
       ipAddress: "192.168.1.45",
       screenTime: 245,
-      hasPhoto: true,
     },
   ];
 
@@ -91,10 +79,6 @@ export function ShiftDetailDialog({ shift, onClose }: ShiftDetailDialogProps) {
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
     return `${hours}ч ${mins}м`;
-  };
-
-  const handleViewPhoto = (sessionId: string) => {
-    alert(`Просмотр фото для сессии ${sessionId}`);
   };
 
   return (
@@ -165,7 +149,6 @@ export function ShiftDetailDialog({ shift, onClose }: ShiftDetailDialogProps) {
                     <TableHead>Устройство</TableHead>
                     <TableHead>IP адрес</TableHead>
                     <TableHead className="text-center">Экранное время</TableHead>
-                    <TableHead className="text-center">Фото</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -197,20 +180,6 @@ export function ShiftDetailDialog({ shift, onClose }: ShiftDetailDialogProps) {
                       </TableCell>
                       <TableCell className="text-center">
                         <span className="text-foreground">{formatTime(session.screenTime)}</span>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {session.hasPhoto ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleViewPhoto(session.id)}
-                          >
-                            <ImageIcon className="w-4 h-4 mr-1" />
-                            Просмотр
-                          </Button>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
                       </TableCell>
                     </TableRow>
                   ))}

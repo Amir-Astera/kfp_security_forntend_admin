@@ -46,6 +46,7 @@ import {
   createAgency as createAgencyRequest,
   updateAgency as updateAgencyRequest,
 } from "../api/agencies";
+import { getBranches } from "../api/branches";
 import type {
   Agency,
   AuthResponse,
@@ -138,10 +139,22 @@ export function AgenciesList({ authTokens }: AgenciesListProps) {
 
       let branchNames = new Map<string, string>();
       try {
-        const branches = db.getBranches ? db.getBranches() : [];
-        branchNames = new Map(branches.map((branch) => [branch.id, branch.name]));
+        const branchesResponse = await getBranches(
+          { accessToken: authTokens.accessToken, tokenType: authTokens.tokenType },
+          { page: 0, size: 200 }
+        );
+        const branchItems = Array.isArray(branchesResponse.items)
+          ? branchesResponse.items
+          : [];
+        branchNames = new Map(branchItems.map((branch) => [branch.id, branch.name]));
       } catch (error) {
         console.error("Ошибка получения названий филиалов:", error);
+        try {
+          const branches = db.getBranches ? db.getBranches() : [];
+          branchNames = new Map(branches.map((branch) => [branch.id, branch.name]));
+        } catch (fallbackError) {
+          console.error("Ошибка получения филиалов из локальной базы:", fallbackError);
+        }
       }
 
       const response = await fetchAgencies(

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -121,8 +121,32 @@ const mapShiftItemToEvent = (item: ShiftRegistryItem): ShiftEvent => {
     timeRangeLabel: formatTimeRange(item.startAt, item.endAt),
     shiftType: mapShiftType(item.kind, item.startAt),
     status: mapStatus(item.status),
+    rawStatus: item.status ?? "",
     dateKey,
   };
+};
+
+const INACTIVE_SHIFT_STATUSES = new Set([
+  "SCHEDULED",
+  "PLANNED",
+  "PENDING",
+  "ASSIGNED",
+  "CREATED",
+]);
+
+const isStatusInteractive = (
+  rawStatus?: string,
+  mappedStatus?: ShiftDetailData["status"]
+): boolean => {
+  if (rawStatus) {
+    return !INACTIVE_SHIFT_STATUSES.has(rawStatus.toUpperCase());
+  }
+
+  return mappedStatus ? mappedStatus !== "scheduled" : false;
+};
+
+const isShiftInteractive = (shift: ShiftEvent): boolean => {
+  return isStatusInteractive(shift.rawStatus, shift.status);
 };
 
 const groupByDate = (shifts: ShiftEvent[]): Map<string, ShiftEvent[]> => {
@@ -164,9 +188,19 @@ export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
   const [isViewLoading, setIsViewLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewError, setViewError] = useState<string | null>(null);
-  const [selectedShift, setSelectedShift] = useState<ShiftDetailData | null>(null);
+  const [selectedShift, setSelectedShift] = useState<ShiftEvent | null>(null);
 
   const isAuthorized = Boolean(authTokens?.accessToken && authTokens?.tokenType);
+
+  const handleSelectShift = useCallback((shift: ShiftEvent) => {
+    if (isShiftInteractive(shift)) {
+      setSelectedShift(shift);
+    }
+  }, []);
+
+  const handleCloseShiftDialog = useCallback(() => {
+    setSelectedShift(null);
+  }, []);
 
   useEffect(() => {
     if (!isAuthorized) {
@@ -484,20 +518,25 @@ export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
             <div className="text-center py-12 text-muted-foreground">Нет смен на выбранную дату</div>
           ) : (
             <div className="space-y-3">
-              {todayShifts.map((shift) => (
-                <div
-                  key={shift.id}
-                  className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-muted/50 transition-colors"
-                >
-                  <div>
-                    <p className="text-foreground font-medium">{shift.guardName}</p>
-                    <p className="text-muted-foreground text-sm">
-                      {shift.branchName ? `${shift.branchName} • ` : ""}
-                      {shift.checkpointName || "—"}
-                    </p>
-                  </div>
+              {todayShifts.map((shift) => {
+                const interactive = isShiftInteractive(shift);
 
-                  <div className="flex items-center gap-4">
+                return (
+                  <div
+                    key={shift.id}
+                    className={`flex items-center justify-between p-4 rounded-lg border border-border transition-colors ${
+                      interactive ? "hover:bg-muted/50" : "opacity-60"
+                    }`}
+                  >
+                    <div>
+                      <p className="text-foreground font-medium">{shift.guardName}</p>
+                      <p className="text-muted-foreground text-sm">
+                        {shift.branchName ? `${shift.branchName} • ` : ""}
+                        {shift.checkpointName || "—"}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-4">
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Clock className="w-4 h-4" />
                       <span>{shift.timeRangeLabel}</span>
@@ -528,13 +567,20 @@ export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
                         ? "Пропущена"
                         : "Запланирована"}
                     </Badge>
-                    <Button variant="outline" size="sm" onClick={() => setSelectedShift(shift)}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleSelectShift(shift)}
+                      disabled={!interactive}
+                      aria-disabled={!interactive}
+                    >
                       <Eye className="w-4 h-4 mr-1" />
                       Детали
                     </Button>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </Card>
@@ -573,18 +619,31 @@ export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
                       {shifts.length === 0 ? (
                         <p className="text-sm text-muted-foreground">Нет смен</p>
                       ) : (
-                        shifts.map((shift) => (
-                          <div
-                            key={shift.id}
-                            className="border border-border rounded-lg p-3 hover:bg-muted/40 transition-colors cursor-pointer"
-                            onClick={() => setSelectedShift(shift)}
-                          >
-                            <p className="text-foreground text-sm font-medium">{shift.guardName}</p>
-                            <p className="text-muted-foreground text-xs">
-                              {shift.timeRangeLabel} • {shift.branchName || "—"}
-                            </p>
-                          </div>
-                        ))
+                        shifts.map((shift) => {
+                          const interactive = isShiftInteractive(shift);
+
+                          return (
+                            <div
+                              key={shift.id}
+                              className={`border border-border rounded-lg p-3 transition-colors ${
+                                interactive
+                                  ? "cursor-pointer hover:bg-muted/40"
+                                  : "opacity-60 cursor-not-allowed"
+                              }`}
+                              onClick={
+                                interactive ? () => handleSelectShift(shift) : undefined
+                              }
+                              aria-disabled={!interactive}
+                            >
+                              <p className="text-foreground text-sm font-medium">
+                                {shift.guardName}
+                              </p>
+                              <p className="text-muted-foreground text-xs">
+                                {shift.timeRangeLabel} • {shift.branchName || "—"}
+                              </p>
+                            </div>
+                          );
+                        })
                       )}
                     </div>
                   </Card>
@@ -621,18 +680,27 @@ export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
                     </div>
 
                     <div className="grid gap-2 md:grid-cols-2">
-                      {shifts.map((shift) => (
-                        <div
-                          key={shift.id}
-                          className="border border-border rounded-lg p-3 hover:bg-muted/40 transition-colors cursor-pointer"
-                          onClick={() => setSelectedShift(shift)}
-                        >
-                          <p className="text-foreground text-sm font-medium">{shift.guardName}</p>
-                          <p className="text-muted-foreground text-xs">
-                            {shift.timeRangeLabel} • {shift.branchName || "—"}
-                          </p>
-                        </div>
-                      ))}
+                      {shifts.map((shift) => {
+                        const interactive = isShiftInteractive(shift);
+
+                        return (
+                          <div
+                            key={shift.id}
+                            className={`border border-border rounded-lg p-3 transition-colors ${
+                              interactive
+                                ? "cursor-pointer hover:bg-muted/40"
+                                : "opacity-60 cursor-not-allowed"
+                            }`}
+                            onClick={interactive ? () => handleSelectShift(shift) : undefined}
+                            aria-disabled={!interactive}
+                          >
+                            <p className="text-foreground text-sm font-medium">{shift.guardName}</p>
+                            <p className="text-muted-foreground text-xs">
+                              {shift.timeRangeLabel} • {shift.branchName || "—"}
+                            </p>
+                          </div>
+                        );
+                      })}
                     </div>
                   </Card>
                 );
@@ -643,7 +711,7 @@ export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
       )}
 
       {selectedShift && (
-        <ShiftDetailDialog shift={selectedShift} onClose={() => setSelectedShift(null)} />
+        <ShiftDetailDialog shift={selectedShift} onClose={handleCloseShiftDialog} />
       )}
     </div>
   );
