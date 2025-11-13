@@ -24,10 +24,10 @@ interface BranchFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   branch: Branch | null;
-  onSave: (data: Partial<Branch>) => void;
+  onSave: (data: BranchFormValues) => Promise<void> | void;
 }
 
-interface FormData {
+export interface BranchFormValues {
   name: string;
   city: string;
   region: string;
@@ -91,8 +91,8 @@ export function BranchFormDialog({
     reset,
     setValue,
     watch,
-    formState: { errors },
-  } = useForm<FormData>({
+    formState: { errors, isSubmitting },
+  } = useForm<BranchFormValues>({
     defaultValues: {
       status: "active",
     },
@@ -130,8 +130,8 @@ export function BranchFormDialog({
     }
   }, [branch, reset]);
 
-  const onSubmit = (data: FormData) => {
-    onSave(data);
+  const onSubmit = async (data: BranchFormValues) => {
+    await onSave(data);
   };
 
   return (
@@ -364,7 +364,9 @@ export function BranchFormDialog({
             >
               Отмена
             </Button>
-            <Button type="submit">Сохранить</Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Сохранение..." : "Сохранить"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

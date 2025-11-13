@@ -18,14 +18,25 @@ import { EmptyState } from "./components/EmptyState";
 import { Settings } from "lucide-react";
 import { Toaster } from "./components/ui/sonner";
 import { db } from "./services";
+import type { AuthResponse } from "./types";
+
+type UserRole = "superadmin" | "agency" | "guard";
+
+interface LoginSuccessPayload {
+  role: UserRole;
+  userName: string;
+  userId: string;
+  tokens: AuthResponse;
+}
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentPage, setCurrentPage] = useState("dashboard");
-  const [userRole, setUserRole] = useState<"superadmin" | "agency" | "guard">("superadmin");
+  const [userRole, setUserRole] = useState<UserRole>("superadmin");
   const [userName, setUserName] = useState("");
   const [userId, setUserId] = useState("");
   const [isDbInitialized, setIsDbInitialized] = useState(false);
+  const [authTokens, setAuthTokens] = useState<AuthResponse | null>(null);
 
   // Инициализация базы данных при загрузке приложения
   useEffect(() => {
@@ -84,12 +95,52 @@ export default function App() {
     initDatabase();
   }, []);
 
-  const handleLogin = (role: "superadmin" | "agency" | "guard", name: string, id: string) => {
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      const storedTokens = window.localStorage.getItem("authTokens");
+      const storedRole = window.localStorage.getItem("authRole");
+      const storedName = window.localStorage.getItem("authUserName");
+      const storedId = window.localStorage.getItem("authUserId");
+
+      if (storedTokens && storedRole && storedName && storedId) {
+        const parsedTokens = JSON.parse(storedTokens) as AuthResponse;
+        if (parsedTokens?.accessToken && parsedTokens?.tokenType) {
+          setAuthTokens(parsedTokens);
+          setUserRole(storedRole as UserRole);
+          setUserName(storedName);
+          setUserId(storedId);
+          setIsAuthenticated(true);
+        }
+      }
+    } catch (error) {
+      console.error("Ошибка восстановления сессии", error);
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem("authTokens");
+        window.localStorage.removeItem("authRole");
+        window.localStorage.removeItem("authUserName");
+        window.localStorage.removeItem("authUserId");
+      }
+    }
+  }, []);
+
+  const handleLogin = ({ role, userName, userId, tokens }: LoginSuccessPayload) => {
     setUserRole(role);
-    setUserName(name);
-    setUserId(id);
+    setUserName(userName);
+    setUserId(userId);
+    setAuthTokens(tokens);
     setIsAuthenticated(true);
     setCurrentPage("dashboard");
+
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("authTokens", JSON.stringify(tokens));
+      window.localStorage.setItem("authRole", role);
+      window.localStorage.setItem("authUserName", userName);
+      window.localStorage.setItem("authUserId", userId);
+    }
   };
 
   const handleLogout = () => {
@@ -98,6 +149,14 @@ export default function App() {
     setUserName("");
     setUserId("");
     setCurrentPage("dashboard");
+    setAuthTokens(null);
+
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("authTokens");
+      window.localStorage.removeItem("authRole");
+      window.localStorage.removeItem("authUserName");
+      window.localStorage.removeItem("authUserId");
+    }
   };
 
   const renderPage = () => {
@@ -107,7 +166,7 @@ export default function App() {
         case "dashboard":
           return <SuperadminDashboard />;
         case "branches":
-          return <BranchesList />;
+          return <BranchesList authTokens={authTokens} />;
         case "checkpoints":
           return <CheckpointsList />;
         case "agencies":
