@@ -15,7 +15,7 @@ import { ScheduleManager } from "./components/ScheduleManager";
 import { PhotoGallery } from "./components/PhotoGallery";
 import { ReportsPage } from "./components/ReportsPage";
 import { EmptyState } from "./components/EmptyState";
-import { Settings } from "lucide-react";
+import { Loader2, Settings } from "lucide-react";
 import { Toaster } from "./components/ui/sonner";
 import { db } from "./services";
 import type { AuthResponse } from "./types";
@@ -37,6 +37,7 @@ export default function App() {
   const [userName, setUserName] = useState("");
   const [userId, setUserId] = useState("");
   const [isDbInitialized, setIsDbInitialized] = useState(false);
+  const [dbError, setDbError] = useState<string | null>(null);
   const [authTokens, setAuthTokens] = useState<AuthResponse | null>(null);
   const [tokenExpiry, setTokenExpiry] = useState<number | null>(null);
 
@@ -46,7 +47,7 @@ export default function App() {
       try {
         console.log('🚀 Инициализация базы данных...');
         await db.initialize();
-        setIsDbInitialized(true);
+        setDbError(null);
         console.log('✅ База данных готова к использованию');
         
         // Для тестирования в консоли браузера
@@ -91,6 +92,14 @@ export default function App() {
         }
       } catch (error) {
         console.error('❌ Ошибка инициализации базы данных:', error);
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Не удалось инициализировать локальную базу данных";
+        setDbError(message);
+        toast.error(message);
+      } finally {
+        setIsDbInitialized(true);
       }
     };
 
@@ -264,10 +273,34 @@ export default function App() {
     }
   };
 
+  if (!isDbInitialized) {
+    return (
+      <>
+        <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background text-center px-4">
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+          <div className="space-y-2">
+            <h2 className="text-foreground text-lg font-semibold">
+              Подготавливаем данные системы
+            </h2>
+            <p className="text-muted-foreground max-w-md">
+              Запускаем локальную базу и загружаем тестовые данные. Пожалуйста, подождите пару секунд.
+            </p>
+          </div>
+        </div>
+        <Toaster />
+      </>
+    );
+  }
+
   if (!isAuthenticated) {
     return (
       <>
         <LoginPage onLogin={handleLogin} />
+        {dbError && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-destructive text-destructive-foreground px-4 py-2 rounded-md shadow-lg">
+            {dbError}
+          </div>
+        )}
         <Toaster />
       </>
     );
@@ -285,6 +318,11 @@ export default function App() {
       >
         {renderPage()}
       </AppLayout>
+      {dbError && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-destructive text-destructive-foreground px-4 py-2 rounded-md shadow-lg">
+          {dbError}
+        </div>
+      )}
       <Toaster />
     </>
   );
