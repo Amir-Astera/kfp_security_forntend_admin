@@ -36,9 +36,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import { db } from "../services";
 import { toast } from "sonner";
-import { createBranch as createBranchRequest } from "../api/branches";
+import {
+  createBranch as createBranchRequest,
+  getBranches as getBranchesRequest,
+  updateBranch as updateBranchRequest,
+} from "../api/branches";
 import type { Branch, AuthResponse } from "../types";
 import type { BranchFormValues } from "./BranchFormDialog";
 
@@ -55,22 +58,7 @@ export function BranchesList({ authTokens }: BranchesListProps) {
 
   const { sortField, sortDirection, handleSort, sortData } = useSorting();
 
-  // Загрузка данных из БД
-  const loadBranches = () => {
-    try {
-      const data = db.getBranches();
-      setBranches(data);
-    } catch (error) {
-      console.error('Ошибка загрузки филиалов:', error);
-      toast.error('Не удалось загрузить филиалы');
-    }
-  };
-
-  useEffect(() => {
-    loadBranches();
-  }, []);
-
-  const toNumberOrNull = (value?: string) => {
+  const toNumberOrNull = (value?: string | number | null) => {
     if (value === undefined || value === null || value === "") {
       return null;
     }
@@ -81,17 +69,102 @@ export function BranchesList({ authTokens }: BranchesListProps) {
 
   const sanitizePhoneNumber = (value: string) => value.replace(/[^+\d]/g, "");
 
+  const formatDate = (value?: string) => {
+    if (!value) {
+      return "";
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+
+    return date.toLocaleString("ru-RU");
+  };
+
+  const mapBranchFromApi = (branch: any): Branch => ({
+    id: branch.id,
+    name: branch.name,
+    city: branch.city ?? "",
+    region: branch.region ?? "",
+    street: branch.street ?? "",
+    building: branch.house ?? branch.building ?? "",
+    latitude:
+      branch.latitude !== undefined && branch.latitude !== null
+        ? String(branch.latitude)
+        : "",
+    longitude:
+      branch.longitude !== undefined && branch.longitude !== null
+        ? String(branch.longitude)
+        : "",
+    phone: branch.phone ?? "",
+    email: branch.email ?? "",
+    status: branch.active ? "active" : "inactive",
+    createdAt: formatDate(branch.createdAt),
+    checkpointsCount: branch.checkpointsCount ?? 0,
+    active: branch.active,
+    house: branch.house,
+    updatedAt: branch.updatedAt,
+    version: branch.version,
+  });
+
+  const loadBranches = async () => {
+    if (!authTokens?.accessToken) {
+      setBranches([]);
+      return;
+    }
+
+    try {
+      const response = await getBranchesRequest(
+        {
+          accessToken: authTokens.accessToken,
+          tokenType: authTokens.tokenType,
+        },
+        { page: 0, size: 100 }
+      );
+
+      setBranches(response.items.map(mapBranchFromApi));
+    } catch (error) {
+      console.error('Ошибка загрузки филиалов:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Не удалось загрузить филиалы'
+      );
+    }
+  };
+
+  useEffect(() => {
+    loadBranches();
+  }, [authTokens?.accessToken, authTokens?.tokenType]);
+
   const handleCreateOrUpdate = async (data: BranchFormValues) => {
     try {
+      if (!authTokens?.accessToken) {
+        toast.error('Для работы с филиалами необходимо выполнить вход');
+        return;
+      }
+
       if (editingBranch) {
-        db.updateBranch(editingBranch.id, data);
+        await updateBranchRequest(
+          editingBranch.id,
+          {
+            name: data.name,
+            city: data.city,
+            region: data.region,
+            street: data.street,
+            house: data.building,
+            latitude: toNumberOrNull(data.latitude),
+            longitude: toNumberOrNull(data.longitude),
+            phone: sanitizePhoneNumber(data.phone),
+            email: data.email,
+            active: data.status === 'active',
+          },
+          {
+            accessToken: authTokens.accessToken,
+            tokenType: authTokens.tokenType,
+          }
+        );
         toast.success('Филиал успешно обновлен');
       } else {
-        if (!authTokens?.accessToken) {
-          toast.error('Для создания филиала необходимо выполнить вход');
-          return;
-        }
-
         await createBranchRequest(
           {
             name: data.name,
@@ -110,9 +183,6 @@ export function BranchesList({ authTokens }: BranchesListProps) {
             tokenType: authTokens.tokenType,
           }
         );
-
-        // Пока нет загрузки данных из API, обновляем локальную базу для отображения
-        db.createBranch(data);
         toast.success('Филиал успешно создан');
       }
       loadBranches();
@@ -131,10 +201,35 @@ export function BranchesList({ authTokens }: BranchesListProps) {
     setIsFormOpen(true);
   };
 
-  const handleToggleStatus = (branch: Branch) => {
+  const handleToggleStatus = async (branch: Branch) => {
     try {
+      if (!authTokens?.accessToken) {
+        toast.error('Для изменения статуса необходимо выполнить вход');
+        return;
+      }
+
       const newStatus = branch.status === 'active' ? 'inactive' : 'active';
-      db.updateBranch(branch.id, { status: newStatus });
+
+      await updateBranchRequest(
+        branch.id,
+        {
+          name: branch.name,
+          city: branch.city,
+          region: branch.region,
+          street: branch.street,
+          house: branch.building,
+          latitude: toNumberOrNull(branch.latitude),
+          longitude: toNumberOrNull(branch.longitude),
+          phone: sanitizePhoneNumber(branch.phone),
+          email: branch.email,
+          active: newStatus === 'active',
+        },
+        {
+          accessToken: authTokens.accessToken,
+          tokenType: authTokens.tokenType,
+        }
+      );
+
       toast.success(`Филиал ${newStatus === 'active' ? 'активирован' : 'деактивирован'}`);
       loadBranches();
     } catch (error) {
