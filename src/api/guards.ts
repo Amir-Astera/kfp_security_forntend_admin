@@ -1,4 +1,14 @@
-import { Guard, CreateGuardRequest, UpdateGuardRequest, GuardFilters, PaginatedResponse } from "../types";
+import {
+  Guard,
+  CreateGuardRequest,
+  UpdateGuardRequest,
+  GuardFilters,
+  PaginatedResponse,
+  GuardListResponse,
+} from "../types";
+import type { GuardApiItem, AuthResponse } from "../types";
+
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
 
 // ============================================
 // MOCK DATA
@@ -405,5 +415,179 @@ export async function getGuardStats(id: string) {
     lastShiftStart: "04.11.2024 08:00",
     lastShiftEnd: "04.11.2024 20:00",
     workDaysThisMonth: 18,
+  };
+}
+
+export interface GuardsApiParams {
+  page?: number;
+  size?: number;
+  agencyId?: string;
+  branchId?: string;
+  checkpointId?: string;
+  q?: string;
+  shiftType?: string;
+  active?: boolean;
+}
+
+const WORK_DAY_MAP: Record<string, string> = {
+  MON: "ПН",
+  TUE: "ВТ",
+  WED: "СР",
+  THU: "ЧТ",
+  FRI: "ПТ",
+  SAT: "СБ",
+  SUN: "ВС",
+};
+
+function buildGuardsQuery(params: GuardsApiParams): string {
+  const searchParams = new URLSearchParams();
+
+  if (typeof params.page === "number") {
+    searchParams.set("page", params.page.toString());
+  }
+
+  if (typeof params.size === "number") {
+    searchParams.set("size", params.size.toString());
+  }
+
+  if (params.q) {
+    searchParams.set("q", params.q);
+  }
+
+  if (params.agencyId) {
+    searchParams.set("agencyId", params.agencyId);
+  }
+
+  if (params.branchId) {
+    searchParams.set("branchId", params.branchId);
+  }
+
+  if (params.checkpointId) {
+    searchParams.set("checkpointId", params.checkpointId);
+  }
+
+  if (params.shiftType) {
+    searchParams.set("shiftType", params.shiftType);
+  }
+
+  if (typeof params.active === "boolean") {
+    searchParams.set("active", String(params.active));
+  }
+
+  const queryString = searchParams.toString();
+  return queryString ? `?${queryString}` : "";
+}
+
+async function parseGuardsError(response: Response): Promise<never> {
+  let message = "Не удалось загрузить список охранников";
+
+  try {
+    const body = await response.json();
+    if (typeof body?.message === "string") {
+      message = body.message;
+    }
+  } catch (error) {
+    console.error("Ошибка разбора ответа сервера охранников", error);
+  }
+
+  throw new Error(message);
+}
+
+const formatTime = (value?: string) => {
+  if (!value) return "";
+  return value.slice(0, 5);
+};
+
+const formatDate = (value?: string) => {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleDateString("ru-RU");
+};
+
+const formatDateTime = (value?: string) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const datePart = date.toLocaleDateString("ru-RU");
+  const timePart = date.toLocaleTimeString("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${datePart} ${timePart}`;
+};
+
+export async function fetchGuardsFromApi(
+  params: GuardsApiParams,
+  tokens: Pick<AuthResponse, "accessToken" | "tokenType">
+): Promise<GuardListResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/guards${buildGuardsQuery(params)}`,
+    {
+      headers: {
+        Authorization: `${tokens.tokenType} ${tokens.accessToken}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    return parseGuardsError(response);
+  }
+
+  return response.json();
+}
+
+export function mapGuardFromApi(
+  guard: GuardApiItem,
+  names?: {
+    agencyName?: string;
+    branchName?: string;
+    checkpointName?: string;
+  }
+): Guard {
+  const shiftType = guard.shiftType?.toLowerCase();
+  const normalizedShiftType = shiftType === "night" ? "night" : "day";
+  const status = guard.status
+    ? guard.status.toLowerCase()
+    : guard.active
+    ? "active"
+    : "inactive";
+
+  const workDays = Array.isArray(guard.workingDays)
+    ? guard.workingDays.map((day) => WORK_DAY_MAP[day] ?? day)
+    : [];
+
+  return {
+    id: guard.id,
+    fullName: guard.fullName,
+    iin: guard.iin,
+    birthDate: formatDate(guard.birthDate),
+    phone: guard.phone,
+    email: guard.email,
+    agencyId: guard.agencyId,
+    agencyName: names?.agencyName ?? "",
+    branchId: guard.branchId,
+    branchName: names?.branchName ?? "",
+    checkpointId: guard.checkpointId,
+    checkpointName: names?.checkpointName ?? "",
+    shiftType: normalizedShiftType,
+    shiftStart: formatTime(guard.shiftStart),
+    shiftEnd: formatTime(guard.shiftEnd),
+    workDays,
+    hireDate: formatDate(guard.createdAt),
+    status: status as Guard["status"],
+    loginEmail: guard.loginEmail,
+    visitsCount: 0,
+    lastActivity: formatDateTime(guard.updatedAt),
+    password: undefined,
+    version: guard.version,
+    active: guard.active,
+    workingDays: guard.workingDays,
+    createdAt: guard.createdAt,
+    updatedAt: guard.updatedAt,
   };
 }

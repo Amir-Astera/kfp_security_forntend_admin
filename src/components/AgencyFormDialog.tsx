@@ -91,9 +91,11 @@ export function AgencyFormDialog({
     defaultValues: {
       status: "active",
       branches: [],
+      password: "",
     },
   });
 
+  const isEditing = Boolean(agency);
   const status = watch("status");
   const selectedBranches = watch("branches") || [];
 
@@ -120,7 +122,7 @@ export function AgencyFormDialog({
         contractStart: agency.contractStart,
         contractEnd: agency.contractEnd,
         loginEmail: agency.loginEmail,
-        password: agency.password,
+        password: "",
         status: agency.status,
       });
     } else {
@@ -477,14 +479,25 @@ export function AgencyFormDialog({
                     id="password"
                     type="password"
                     {...register("password", {
-                      required: "Пароль обязателен",
+                      ...(isEditing
+                        ? {}
+                        : { required: "Пароль обязателен" }),
                       minLength: { value: 6, message: "Минимум 6 символов" },
                     })}
-                    placeholder="Введите пароль"
+                    placeholder={
+                      isEditing
+                        ? "Оставьте пустым, чтобы не менять пароль"
+                        : "Введите пароль"
+                    }
                   />
                   {errors.password && (
                     <p className="text-destructive mt-1">
                       {errors.password.message}
+                    </p>
+                  )}
+                  {isEditing && !errors.password && (
+                    <p className="text-muted-foreground mt-1">
+                      Оставьте поле пустым, если смена пароля не требуется
                     </p>
                   )}
                 </div>

@@ -81,6 +81,65 @@ export interface Agency {
   status: "active" | "inactive";
   createdAt: string;
   guardsCount: number;
+  version?: number;
+  active?: boolean;
+}
+
+export interface AgencyApiItem {
+  id: string;
+  name: string;
+  bin: string;
+  directorFullName: string;
+  legalAddress: string;
+  phone: string;
+  email: string;
+  attachedBranchIds: string[];
+  contractStart: string;
+  contractEnd: string;
+  loginEmail: string;
+  active: boolean;
+  version?: number;
+  guardsCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AgencyListResponse {
+  items: AgencyApiItem[];
+  page: number;
+  size: number;
+  total: number;
+}
+
+export interface CreateAgencyRequest {
+  name: string;
+  bin: string;
+  directorFullName: string;
+  legalAddress: string;
+  phone: string;
+  email: string;
+  attachedBranchIds: string[];
+  contractStart: string;
+  contractEnd: string;
+  loginEmail: string;
+  loginPassword: string;
+  active: boolean;
+}
+
+export interface UpdateAgencyRequest {
+  name?: string;
+  bin?: string;
+  directorFullName?: string;
+  legalAddress?: string;
+  phone?: string;
+  email?: string;
+  attachedBranchIds?: string[];
+  contractStart?: string;
+  contractEnd?: string;
+  loginEmail?: string;
+  newLoginPassword?: string;
+  active?: boolean;
+  version: number;
 }
 
 // ============================================
@@ -110,6 +169,40 @@ export interface Guard {
   password?: string; // Только для внутреннего использования, не отдавать в API
   visitsCount: number; // Количество зарегистрированных визитов
   lastActivity?: string; // Дата последней активности
+  version?: number;
+  active?: boolean;
+  workingDays?: string[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface GuardApiItem {
+  id: string;
+  agencyId: string;
+  branchId: string;
+  checkpointId: string;
+  fullName: string;
+  iin: string;
+  birthDate: string;
+  phone: string;
+  email?: string;
+  loginEmail: string;
+  shiftType: string;
+  shiftStart: string;
+  shiftEnd: string;
+  workingDays: string[];
+  active: boolean;
+  status?: string;
+  version?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface GuardListResponse {
+  items: GuardApiItem[];
+  page: number;
+  size: number;
+  total: number;
 }
 
 // ============================================

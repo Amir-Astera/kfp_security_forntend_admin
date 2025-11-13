@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -41,10 +41,20 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import { Guard } from "../types";
+import { Guard, AuthResponse } from "../types";
 import { db } from "../services";
 import { toast } from "sonner@2.0.3";
 import { exportGuards } from "../utils/export";
+import {
+  fetchGuardsFromApi,
+  mapGuardFromApi,
+  GuardsApiParams,
+} from "../api/guards";
+import { fetchAgencies } from "../api/agencies";
+
+interface GuardsListProps {
+  authTokens: AuthResponse | null;
+}
 
 const statusLabels = {
   active: "Активен",
@@ -60,10 +70,14 @@ const statusColors = {
   sick: "destructive",
 } as const;
 
-export function GuardsList() {
+export function GuardsList({ authTokens }: GuardsListProps) {
   const [guards, setGuards] = useState<Guard[]>([]);
   const [agencies, setAgencies] = useState<any[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
+
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [total, setTotal] = useState(0);
 
   // Фильтры
   const [searchQuery, setSearchQuery] = useState("");
@@ -75,52 +89,209 @@ export function GuardsList() {
   // Сортировка
   const { sortField, sortDirection, handleSort, sortData } = useSorting();
 
-  useEffect(() => {
-    loadGuards();
-    loadAgencies();
-    loadBranches();
-  }, []);
+  const page = 0;
+  const pageSize = 25;
 
-  const loadGuards = () => {
+  const loadGuardsFromDb = useCallback(() => {
     try {
       const data = db.getGuards();
       setGuards(data);
+      setTotal(data.length);
+    } catch (error) {
+      console.error("Ошибка загрузки охранников из локальной базы:", error);
+      toast.error("Не удалось загрузить охранников");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const loadGuards = useCallback(async () => {
+    setIsLoading(true);
+
+    if (!authTokens?.accessToken) {
+      loadGuardsFromDb();
+      return;
+    }
+
+    try {
+      const params: GuardsApiParams = {
+        page,
+        size: pageSize,
+      };
+
+      if (debouncedSearch) {
+        params.q = debouncedSearch;
+      }
+
+      if (agencyFilter !== "all") {
+        params.agencyId = agencyFilter;
+      }
+
+      if (branchFilter !== "all") {
+        params.branchId = branchFilter;
+      }
+
+      if (statusFilter === "active") {
+        params.active = true;
+      } else if (statusFilter === "inactive") {
+        params.active = false;
+      }
+
+      if (shiftFilter !== "all") {
+        params.shiftType = shiftFilter.toUpperCase();
+      }
+
+      const response = await fetchGuardsFromApi(params, {
+        accessToken: authTokens.accessToken,
+        tokenType: authTokens.tokenType,
+      });
+
+      const agencyNameMap = new Map<string, string>(
+        agencies.map((agency: any) => [agency.id, agency.name])
+      );
+
+      let branchMap = new Map<string, string>();
+      let checkpointMap = new Map<string, string>();
+
+      try {
+        const branchData = db.getBranches ? db.getBranches() : [];
+        branchMap = new Map(
+          branchData.map((branch: any) => [branch.id, branch.name])
+        );
+      } catch (error) {
+        console.error("Ошибка получения названий филиалов:", error);
+      }
+
+      try {
+        const checkpointData = db.getCheckpoints ? db.getCheckpoints() : [];
+        checkpointMap = new Map(
+          checkpointData.map((checkpoint: any) => [checkpoint.id, checkpoint.name])
+        );
+      } catch (error) {
+        console.error("Ошибка получения КПП:", error);
+      }
+
+      const mapped = Array.isArray(response.items)
+        ? response.items.map((guard) =>
+            mapGuardFromApi(guard, {
+              agencyName: agencyNameMap.get(guard.agencyId) ?? "",
+              branchName: branchMap.get(guard.branchId) ?? "",
+              checkpointName: checkpointMap.get(guard.checkpointId) ?? "",
+            })
+          )
+        : [];
+
+      setGuards(mapped);
+      setTotal(response.total ?? mapped.length);
     } catch (error) {
       console.error("Ошибка загрузки охранников:", error);
-      toast.error("Не удалось загрузить охранников");
+      const message =
+        error instanceof Error ? error.message : "Не удалось загрузить охранников";
+      toast.error(message);
+      loadGuardsFromDb();
+    } finally {
+      setIsLoading(false);
     }
-  };
+  }, [
+    agencies,
+    agencyFilter,
+    authTokens,
+    branchFilter,
+    debouncedSearch,
+    loadGuardsFromDb,
+    page,
+    pageSize,
+    shiftFilter,
+    statusFilter,
+  ]);
 
-  const loadAgencies = () => {
+  const loadAgencyOptions = useCallback(async () => {
+    if (!authTokens?.accessToken) {
+      try {
+        const data = db.getAgencies();
+        setAgencies(data);
+      } catch (error) {
+        console.error("Ошибка загрузки агентств из локальной базы:", error);
+      }
+      return;
+    }
+
     try {
-      const data = db.getAgencies();
-      setAgencies(data);
+      const response = await fetchAgencies(
+        {
+          page: 0,
+          size: 100,
+        },
+        {
+          accessToken: authTokens.accessToken,
+          tokenType: authTokens.tokenType,
+        }
+      );
+
+      const items = Array.isArray(response.items)
+        ? response.items.map((agency) => ({ id: agency.id, name: agency.name }))
+        : [];
+
+      setAgencies(items);
     } catch (error) {
       console.error("Ошибка загрузки агентств:", error);
+      try {
+        const data = db.getAgencies();
+        setAgencies(data);
+      } catch (fallbackError) {
+        console.error("Ошибка загрузки агентств из локальной базы:", fallbackError);
+      }
     }
-  };
+  }, [authTokens]);
 
-  const loadBranches = () => {
+  const loadBranches = useCallback(() => {
     try {
       const data = db.getBranches();
       setBranches(data);
     } catch (error) {
       console.error("Ошибка загрузки филиалов:", error);
     }
-  };
+  }, []);
 
-  const handleToggleStatus = (guard: Guard) => {
-    try {
-      const newStatus = guard.status === "active" ? "inactive" : "active";
-      db.updateGuard(guard.id, { status: newStatus });
-      toast.success(
-        `Охранник ${newStatus === "active" ? "активирован" : "деактивирован"}`
-      );
-      loadGuards();
-    } catch (error) {
-      console.error("Ошибка изменения статуса:", error);
-      toast.error("Не удалось изменить статус");
+  useEffect(() => {
+    loadBranches();
+  }, [loadBranches]);
+
+  useEffect(() => {
+    loadAgencyOptions();
+  }, [loadAgencyOptions]);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim());
+    }, 400);
+
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    loadGuards();
+  }, [loadGuards]);
+
+  const handleToggleStatus = async (guard: Guard) => {
+    if (!authTokens?.accessToken) {
+      try {
+        const newStatus = guard.status === "active" ? "inactive" : "active";
+        db.updateGuard(guard.id, { status: newStatus });
+        toast.success(
+          `Охранник ${newStatus === "active" ? "активирован" : "деактивирован"}`
+        );
+        loadGuardsFromDb();
+      } catch (error) {
+        console.error("Ошибка изменения статуса:", error);
+        toast.error("Не удалось изменить статус");
+      }
+      return;
     }
+
+    toast.info(
+      "Изменение статуса охранника будет доступно после добавления соответствующего API"
+    );
   };
 
   const handleResetPassword = (guard: Guard) => {
@@ -183,8 +354,9 @@ export function GuardsList() {
         <div>
           <h2 className="text-foreground mb-1">Охранники</h2>
           <p className="text-muted-foreground">
-            Всего: {guards.length} • Активных: {activeCount} • Визитов:{" "}
-            {totalVisits}
+            Всего: {total} • На странице: {guards.length} • Активных на странице:
+            {" "}
+            {activeCount} • Визитов на странице: {totalVisits}
           </p>
         </div>
         <div className="flex gap-3">
@@ -339,7 +511,16 @@ export function GuardsList() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {!sortedGuards || sortedGuards.length === 0 ? (
+              {isLoading ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={10}
+                    className="text-center py-12 text-muted-foreground"
+                  >
+                    Загрузка охранников...
+                  </TableCell>
+                </TableRow>
+              ) : sortedGuards.length === 0 ? (
                 <TableRow>
                   <TableCell
                     colSpan={10}
