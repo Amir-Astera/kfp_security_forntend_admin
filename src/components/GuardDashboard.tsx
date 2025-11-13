@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
@@ -14,9 +14,10 @@ interface GuardDashboardProps {
   guardId: string;
   guardName: string;
   onLogout: () => void;
+  authTokens: AuthResponse | null;
 }
 
-export function GuardDashboard({ guardId, guardName, onLogout }: GuardDashboardProps) {
+export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: GuardDashboardProps) {
   const [activeTab, setActiveTab] = useState("entry");
   const [workStarted, setWorkStarted] = useState(false);
   const [showStartDialog, setShowStartDialog] = useState(false);
@@ -128,6 +129,48 @@ export function GuardDashboard({ guardId, guardName, onLogout }: GuardDashboardP
     return v.exitTime && new Date(v.exitTime).toLocaleDateString("ru-RU") === today;
   }).length;
 
+  const fallbackCards = useMemo<GuardDashboardCardsResponse>(
+    () => ({
+      presentNow: onSite,
+      arrivedThisShift: arrivedToday,
+      leftThisShift: exitedToday,
+    }),
+    [arrivedToday, exitedToday, onSite]
+  );
+
+  const displayedCards = cardsData ?? fallbackCards;
+
+  useEffect(() => {
+    if (!authTokens?.accessToken || !authTokens?.tokenType) {
+      setCardsData(null);
+      return;
+    }
+
+    let isActive = true;
+    setCardsLoading(true);
+    setCardsError(null);
+
+    fetchGuardDashboardCards(authTokens)
+      .then((data) => {
+        if (!isActive) return;
+        setCardsData(data);
+      })
+      .catch((error) => {
+        console.error("Не удалось загрузить карточки охранника", error);
+        if (!isActive) return;
+        setCardsError(error instanceof Error ? error.message : "Не удалось загрузить данные");
+        setCardsData(null);
+      })
+      .finally(() => {
+        if (!isActive) return;
+        setCardsLoading(false);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [authTokens]);
+
   const handleStartWork = () => {
     setWorkStarted(true);
     setShowStartDialog(false);
@@ -178,7 +221,9 @@ export function GuardDashboard({ guardId, guardName, onLogout }: GuardDashboardP
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent className="pb-4">
-              <div className="text-foreground">{onSite}</div>
+              <div className="text-3xl font-semibold text-foreground">
+                {cardsLoading ? "…" : displayedCards.presentNow.toLocaleString("ru-RU")}
+              </div>
             </CardContent>
           </Card>
 
@@ -188,7 +233,9 @@ export function GuardDashboard({ guardId, guardName, onLogout }: GuardDashboardP
               <UserCheck className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent className="pb-4">
-              <div className="text-foreground">{arrivedToday}</div>
+              <div className="text-3xl font-semibold text-foreground">
+                {cardsLoading ? "…" : displayedCards.arrivedThisShift.toLocaleString("ru-RU")}
+              </div>
             </CardContent>
           </Card>
 
@@ -198,10 +245,18 @@ export function GuardDashboard({ guardId, guardName, onLogout }: GuardDashboardP
               <UserX className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent className="pb-4">
-              <div className="text-foreground">{exitedToday}</div>
+              <div className="text-3xl font-semibold text-foreground">
+                {cardsLoading ? "…" : displayedCards.leftThisShift.toLocaleString("ru-RU")}
+              </div>
             </CardContent>
           </Card>
         </div>
+
+        {cardsError && (
+          <p className="text-sm text-destructive/80">
+            {cardsError}. Показаны данные локальной базы.
+          </p>
+        )}
 
         {/* Основные вкладки */}
         <Card>
@@ -233,7 +288,7 @@ export function GuardDashboard({ guardId, guardName, onLogout }: GuardDashboardP
               </TabsContent>
 
               <TabsContent value="statistics" className="mt-0">
-                <GuardStatistics />
+                <GuardStatistics authTokens={authTokens} />
               </TabsContent>
             </CardContent>
           </Tabs>
