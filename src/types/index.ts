@@ -3,6 +3,24 @@
 // ============================================
 
 // ============================================
+// АВТОРИЗАЦИЯ
+// ============================================
+
+export interface AuthPrincipal {
+  userId: string;
+  role: string;
+  email: string;
+}
+
+export interface AuthResponse {
+  tokenType: string;
+  accessToken: string;
+  expiresIn: number;
+  refreshToken: string;
+  principal: AuthPrincipal;
+}
+
+// ============================================
 // ФИЛИАЛЫ
 // ============================================
 export interface Branch {

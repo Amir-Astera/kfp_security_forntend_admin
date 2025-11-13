@@ -5,27 +5,19 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Shield, User, Building2, UserCog } from "lucide-react";
 import { toast } from "sonner@2.0.3";
-import { db } from "../services";
+import { login as loginRequest } from "../api/auth";
+import type { AuthResponse } from "../types";
 
-interface LoginPageProps {
-  onLogin: (role: "superadmin" | "agency" | "guard", userName: string, userId: string) => void;
+interface LoginSuccessPayload {
+  role: "superadmin" | "agency" | "guard";
+  userName: string;
+  userId: string;
+  tokens: AuthResponse;
 }
 
-// Моковые пользователи (не отображаются в UI)
-const MOCK_USERS = {
-  superadmin: {
-    email: "admin@kfp.kz",
-    password: "admin123",
-    name: "Суперадминистратор",
-    id: "superadmin-1",
-  },
-  agency: {
-    email: "agency@kzsecurity.kz",
-    password: "agency123",
-    name: "ТОО «Казахстан Секьюрити»",
-    id: "agency-1",
-  },
-};
+interface LoginPageProps {
+  onLogin: (payload: LoginSuccessPayload) => void;
+}
 
 export function LoginPage({ onLogin }: LoginPageProps) {
   const [selectedRole, setSelectedRole] = useState<"superadmin" | "agency" | "guard" | null>(
@@ -51,54 +43,37 @@ export function LoginPage({ onLogin }: LoginPageProps) {
 
     setLoading(true);
 
-    // Имитация задержки запроса
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    const realmMap: Record<"superadmin" | "agency" | "guard", "SUPER" | "AGENCY" | "GUARD"> = {
+      superadmin: "SUPER",
+      agency: "AGENCY",
+      guard: "GUARD",
+    };
 
-    // Проверка для охранников
-    if (selectedRole === "guard") {
-      const guards = db.getGuards ? db.getGuards() : [];
-      console.log("🔍 Всего охранников в базе:", guards.length);
-      console.log("🔍 Поиск охранника с email:", email);
-      
-      const guard = guards.find((g) => g.loginEmail === email);
+    try {
+      const tokens = await loginRequest({
+        email,
+        password,
+        realm: realmMap[selectedRole],
+      });
 
-      if (guard) {
-        console.log("👤 Найден охранник:", guard.fullName);
-        console.log("🔑 Пароль в базе:", guard.password);
-        console.log("🔑 Введенный пароль:", password);
-        
-        if (guard.password === password) {
-          console.log("✅ Пароли совпадают!");
-          toast.success("Вход выполнен успешно");
-          onLogin("guard", guard.fullName, guard.id);
-          setLoading(false);
-          return;
-        } else {
-          console.error("❌ Пароли не совпадают");
-          toast.error("Неверный пароль");
-          setLoading(false);
-          return;
-        }
-      } else {
-        console.error("❌ Охранник с email", email, "не найден");
-        console.log("📋 Список всех email охранников:", guards.map(g => g.loginEmail));
-        toast.error("Охранник с таким email не найден");
-        setLoading(false);
-        return;
-      }
-    }
+      const userName = tokens.principal?.email ?? email;
+      const userId = tokens.principal?.userId ?? "";
 
-    // Проверка для админа и агентства
-    const mockUser = MOCK_USERS[selectedRole];
-
-    if (mockUser && email === mockUser.email && password === mockUser.password) {
       toast.success("Вход выполнен успешно");
-      onLogin(selectedRole, mockUser.name, mockUser.id);
-    } else {
-      toast.error("Неверный email или пароль");
+      onLogin({
+        role: selectedRole,
+        userName,
+        userId,
+        tokens,
+      });
+    } catch (error) {
+      console.error("Ошибка авторизации", error);
+      const message =
+        error instanceof Error ? error.message : "Не удалось выполнить вход";
+      toast.error(message);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   const handleBack = () => {

@@ -38,9 +38,15 @@ import {
 } from "./ui/dropdown-menu";
 import { db } from "../services";
 import { toast } from "sonner";
-import type { Branch } from "../types";
+import { createBranch as createBranchRequest } from "../api/branches";
+import type { Branch, AuthResponse } from "../types";
+import type { BranchFormValues } from "./BranchFormDialog";
 
-export function BranchesList() {
+interface BranchesListProps {
+  authTokens: AuthResponse | null;
+}
+
+export function BranchesList({ authTokens }: BranchesListProps) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -64,12 +70,48 @@ export function BranchesList() {
     loadBranches();
   }, []);
 
-  const handleCreateOrUpdate = (data: any) => {
+  const toNumberOrNull = (value?: string) => {
+    if (value === undefined || value === null || value === "") {
+      return null;
+    }
+
+    const parsed = Number(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  };
+
+  const sanitizePhoneNumber = (value: string) => value.replace(/[^+\d]/g, "");
+
+  const handleCreateOrUpdate = async (data: BranchFormValues) => {
     try {
       if (editingBranch) {
         db.updateBranch(editingBranch.id, data);
         toast.success('Филиал успешно обновлен');
       } else {
+        if (!authTokens?.accessToken) {
+          toast.error('Для создания филиала необходимо выполнить вход');
+          return;
+        }
+
+        await createBranchRequest(
+          {
+            name: data.name,
+            city: data.city,
+            region: data.region,
+            street: data.street,
+            house: data.building,
+            latitude: toNumberOrNull(data.latitude),
+            longitude: toNumberOrNull(data.longitude),
+            phone: sanitizePhoneNumber(data.phone),
+            email: data.email,
+            active: data.status === 'active',
+          },
+          {
+            accessToken: authTokens.accessToken,
+            tokenType: authTokens.tokenType,
+          }
+        );
+
+        // Пока нет загрузки данных из API, обновляем локальную базу для отображения
         db.createBranch(data);
         toast.success('Филиал успешно создан');
       }
@@ -78,7 +120,9 @@ export function BranchesList() {
       setEditingBranch(null);
     } catch (error) {
       console.error('Ошибка сохранения филиала:', error);
-      toast.error('Не удалось сохранить филиал');
+      const message =
+        error instanceof Error ? error.message : 'Не удалось сохранить филиал';
+      toast.error(message);
     }
   };
 
