@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { LoginPage } from "./components/LoginPage";
 import { AppLayout } from "./components/AppLayout";
 import { SuperadminDashboard } from "./components/SuperadminDashboard";
@@ -19,6 +19,7 @@ import { Settings } from "lucide-react";
 import { Toaster } from "./components/ui/sonner";
 import { db } from "./services";
 import type { AuthResponse } from "./types";
+import { toast } from "sonner@2.0.3";
 
 type UserRole = "superadmin" | "agency" | "guard";
 
@@ -37,6 +38,7 @@ export default function App() {
   const [userId, setUserId] = useState("");
   const [isDbInitialized, setIsDbInitialized] = useState(false);
   const [authTokens, setAuthTokens] = useState<AuthResponse | null>(null);
+  const [tokenExpiry, setTokenExpiry] = useState<number | null>(null);
 
   // Инициализация базы данных при загрузке приложения
   useEffect(() => {
@@ -95,6 +97,24 @@ export default function App() {
     initDatabase();
   }, []);
 
+  const handleLogout = useCallback(() => {
+    setIsAuthenticated(false);
+    setUserRole("superadmin");
+    setUserName("");
+    setUserId("");
+    setCurrentPage("dashboard");
+    setAuthTokens(null);
+    setTokenExpiry(null);
+
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("authTokens");
+      window.localStorage.removeItem("authRole");
+      window.localStorage.removeItem("authUserName");
+      window.localStorage.removeItem("authUserId");
+      window.localStorage.removeItem("authExpiresAt");
+    }
+  }, []);
+
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
@@ -105,59 +125,80 @@ export default function App() {
       const storedRole = window.localStorage.getItem("authRole");
       const storedName = window.localStorage.getItem("authUserName");
       const storedId = window.localStorage.getItem("authUserId");
+      const storedExpiresAt = window.localStorage.getItem("authExpiresAt");
 
-      if (storedTokens && storedRole && storedName && storedId) {
-        const parsedTokens = JSON.parse(storedTokens) as AuthResponse;
-        if (parsedTokens?.accessToken && parsedTokens?.tokenType) {
-          setAuthTokens(parsedTokens);
-          setUserRole(storedRole as UserRole);
-          setUserName(storedName);
-          setUserId(storedId);
-          setIsAuthenticated(true);
-        }
+      if (!storedTokens || !storedRole || !storedName || !storedId || !storedExpiresAt) {
+        return;
+      }
+
+      const expiresAt = Number(storedExpiresAt);
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+        handleLogout();
+        return;
+      }
+
+      const parsedTokens = JSON.parse(storedTokens) as AuthResponse;
+      if (parsedTokens?.accessToken && parsedTokens?.tokenType) {
+        setAuthTokens(parsedTokens);
+        setUserRole(storedRole as UserRole);
+        setUserName(storedName);
+        setUserId(storedId);
+        setTokenExpiry(expiresAt);
+        setIsAuthenticated(true);
       }
     } catch (error) {
       console.error("Ошибка восстановления сессии", error);
-      if (typeof window !== "undefined") {
-        window.localStorage.removeItem("authTokens");
-        window.localStorage.removeItem("authRole");
-        window.localStorage.removeItem("authUserName");
-        window.localStorage.removeItem("authUserId");
-      }
+      handleLogout();
     }
-  }, []);
+  }, [handleLogout]);
 
-  const handleLogin = ({ role, userName, userId, tokens }: LoginSuccessPayload) => {
+  const handleLogin = useCallback(({ role, userName, userId, tokens }: LoginSuccessPayload) => {
+    const expiresInMs = (tokens?.expiresIn ?? 3600) * 1000;
+    const expiresAt = Date.now() + expiresInMs;
+
     setUserRole(role);
     setUserName(userName);
     setUserId(userId);
     setAuthTokens(tokens);
     setIsAuthenticated(true);
     setCurrentPage("dashboard");
+    setTokenExpiry(expiresAt);
 
     if (typeof window !== "undefined") {
       window.localStorage.setItem("authTokens", JSON.stringify(tokens));
       window.localStorage.setItem("authRole", role);
       window.localStorage.setItem("authUserName", userName);
       window.localStorage.setItem("authUserId", userId);
+      window.localStorage.setItem("authExpiresAt", String(expiresAt));
     }
-  };
+  }, []);
 
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setUserRole("superadmin");
-    setUserName("");
-    setUserId("");
-    setCurrentPage("dashboard");
-    setAuthTokens(null);
-
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem("authTokens");
-      window.localStorage.removeItem("authRole");
-      window.localStorage.removeItem("authUserName");
-      window.localStorage.removeItem("authUserId");
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
     }
-  };
+
+    if (!isAuthenticated || !tokenExpiry) {
+      return;
+    }
+
+    const timeLeft = tokenExpiry - Date.now();
+
+    if (timeLeft <= 0) {
+      toast.warning("Сессия истекла, выполните вход снова");
+      handleLogout();
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      toast.warning("Сессия истекла, выполните вход снова");
+      handleLogout();
+    }, timeLeft);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [handleLogout, isAuthenticated, tokenExpiry]);
 
   const renderPage = () => {
     // Разделение страниц по ролям
@@ -174,9 +215,9 @@ export default function App() {
         case "guards":
           return <GuardsList authTokens={authTokens} />;
         case "visits":
-          return <VisitsList />;
+          return <VisitsList authTokens={authTokens} />;
         case "schedule":
-          return <ScheduleManager />;
+          return <ScheduleManager authTokens={authTokens} />;
         case "photo-gallery":
           return <PhotoGallery />;
         case "reports":
@@ -202,7 +243,7 @@ export default function App() {
         case "timesheet":
           return <AgencyTimesheet />;
         case "schedule":
-          return <ScheduleManager />;
+          return <ScheduleManager authTokens={authTokens} />;
         case "photo-gallery":
           return <PhotoGallery />;
         case "reports":

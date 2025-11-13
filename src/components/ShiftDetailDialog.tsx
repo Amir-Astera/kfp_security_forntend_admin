@@ -1,4 +1,10 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "./ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "./ui/dialog";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Avatar, AvatarFallback } from "./ui/avatar";
@@ -31,24 +37,25 @@ interface ShiftSession {
   hasPhoto: boolean;
 }
 
-interface ShiftEvent {
+export interface ShiftDetailData {
   id: string;
   guardName: string;
   guardId: string;
-  date: string;
+  branchName?: string;
+  checkpointName?: string;
+  agencyName?: string;
+  dateLabel: string;
+  timeRangeLabel: string;
   shiftType: "day" | "night";
-  timeRange: string;
-  checkpoint: string;
   status: "scheduled" | "completed" | "missed";
 }
 
 interface ShiftDetailDialogProps {
-  shift: ShiftEvent;
+  shift: ShiftDetailData;
   onClose: () => void;
 }
 
 export function ShiftDetailDialog({ shift, onClose }: ShiftDetailDialogProps) {
-  // Мок-данные сессий
   const sessions: ShiftSession[] = [
     {
       id: "1",
@@ -110,24 +117,26 @@ export function ShiftDetailDialog({ shift, onClose }: ShiftDetailDialogProps) {
                 )}
               </div>
               <p className="text-muted-foreground text-sm">
-                {shift.date} • {shift.timeRange}
+                {shift.dateLabel} • {shift.timeRangeLabel}
               </p>
             </div>
           </DialogTitle>
           <DialogDescription>
-            Детали смены для {shift.guardName} на {shift.date}.
+            Детали смены для {shift.guardName} на {shift.dateLabel}.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">
-          {/* Summary */}
           <div className="grid grid-cols-3 gap-4">
             <div className="p-4 bg-muted/50 rounded-lg">
               <div className="flex items-center gap-2 mb-2">
                 <MapPin className="w-4 h-4 text-primary" />
                 <span className="text-muted-foreground">КПП</span>
               </div>
-              <p className="text-foreground">{shift.checkpoint}</p>
+              <p className="text-foreground">
+                {shift.branchName ? `${shift.branchName} • ` : ""}
+                {shift.checkpointName || "—"}
+              </p>
             </div>
             <div className="p-4 bg-muted/50 rounded-lg">
               <div className="flex items-center gap-2 mb-2">
@@ -145,7 +154,6 @@ export function ShiftDetailDialog({ shift, onClose }: ShiftDetailDialogProps) {
             </div>
           </div>
 
-          {/* Sessions Table */}
           <div>
             <h4 className="text-foreground mb-3">История входов</h4>
             <div className="border rounded-lg overflow-hidden">
@@ -211,14 +219,41 @@ export function ShiftDetailDialog({ shift, onClose }: ShiftDetailDialogProps) {
             </div>
           </div>
 
-          {/* Actions */}
-          <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button variant="outline" onClick={onClose}>
-              Закрыть
-            </Button>
+          <div className="p-4 bg-muted/50 rounded-lg">
+            <h4 className="text-foreground mb-2">Статус смены</h4>
+            <div className="flex items-center gap-3">
+              <Badge
+                variant="outline"
+                className={
+                  shift.status === "completed"
+                    ? "bg-success/10 text-success border-success/20"
+                    : shift.status === "missed"
+                    ? "bg-destructive/10 text-destructive border-destructive/20"
+                    : "bg-info/10 text-info border-info/20"
+                }
+              >
+                {shift.status === "completed"
+                  ? "Завершена"
+                  : shift.status === "missed"
+                  ? "Пропущена"
+                  : "Запланирована"}
+              </Badge>
+              {shift.agencyName && (
+                <span className="text-muted-foreground text-sm">
+                  Агентство: {shift.agencyName}
+                </span>
+              )}
+            </div>
           </div>
+        </div>
+
+        <div className="flex justify-end gap-3">
+          <Button variant="outline" onClick={onClose}>
+            Закрыть
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
   );
 }
+
