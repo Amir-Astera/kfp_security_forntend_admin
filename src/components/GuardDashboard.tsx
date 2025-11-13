@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { GuardEntryRegistration } from "./GuardEntryRegistration";
 import { GuardExitRegistration } from "./GuardExitRegistration";
@@ -8,8 +8,7 @@ import { GuardStatistics } from "./GuardStatistics";
 import { StartWorkDialog } from "./StartWorkDialog";
 import { LogIn, LogOut, BarChart3, Users, UserCheck, UserX } from "lucide-react";
 import { db } from "../services";
-import { fetchGuardDashboardCards } from "../api/dashboard";
-import type { AuthResponse, Guard, GuardDashboardCardsResponse } from "../types";
+import type { Branch, Checkpoint, Guard } from "../types";
 
 interface GuardDashboardProps {
   guardId: string;
@@ -23,38 +22,99 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
   const [workStarted, setWorkStarted] = useState(false);
   const [showStartDialog, setShowStartDialog] = useState(false);
   const [guard, setGuard] = useState<Guard | null>(null);
-  const [branch, setBranch] = useState<any>(null);
-  const [checkpoint, setCheckpoint] = useState<any>(null);
-  const [cardsData, setCardsData] = useState<GuardDashboardCardsResponse | null>(null);
-  const [cardsLoading, setCardsLoading] = useState(false);
-  const [cardsError, setCardsError] = useState<string | null>(null);
+  const [branch, setBranch] = useState<Branch | null>(null);
+  const [checkpoint, setCheckpoint] = useState<Checkpoint | null>(null);
+  const [loadingGuard, setLoadingGuard] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Загружаем данные охранника
   useEffect(() => {
-    if (guardId) {
-      const guardData = db.getGuardById ? db.getGuardById(guardId) : null;
-      setGuard(guardData);
+    let isMounted = true;
+    let retryTimeout: number | null = null;
+    let attempts = 0;
+
+    const resetState = () => {
+      setGuard(null);
+      setBranch(null);
+      setCheckpoint(null);
+      setWorkStarted(false);
+      setShowStartDialog(false);
+    };
+
+    const resolveGuard = (): Guard | null => {
+      if (!db.getGuards) {
+        return null;
+      }
+
+      let guardData = guardId && db.getGuardById ? db.getGuardById(guardId) : null;
+
+      if (!guardData) {
+        const guards = db.getGuards();
+        const normalizedName = guardName?.trim().toLowerCase();
+
+        if (normalizedName) {
+          guardData = guards.find((g) =>
+            g.loginEmail?.toLowerCase() === normalizedName ||
+            g.fullName.toLowerCase() === normalizedName
+          ) ?? null;
+        }
+
+        if (!guardData && guardId) {
+          guardData = guards.find((g) => g.id === guardId) ?? null;
+        }
+      }
+
+      return guardData ?? null;
+    };
+
+    const loadGuardData = () => {
+      if (!isMounted) {
+        return;
+      }
+
+      const guardData = resolveGuard();
 
       if (guardData) {
-        // Загружаем филиал
         const branchData = db.getBranchById ? db.getBranchById(guardData.branchId) : null;
-        setBranch(branchData);
-
-        // Загружаем КПП
         const checkpointData = db.getCheckpointById ? db.getCheckpointById(guardData.checkpointId) : null;
-        setCheckpoint(checkpointData);
 
-        // Проверяем, начата ли работа
-        const shiftStart = localStorage.getItem(`guard_shift_start_${guardId}`);
+        setGuard(guardData);
+        setBranch(branchData ?? null);
+        setCheckpoint(checkpointData ?? null);
+
+        const shiftStart = localStorage.getItem(`guard_shift_start_${guardData.id}`);
         if (shiftStart) {
           setWorkStarted(true);
         } else {
-          // Показываем диалог начала работы при первом входе
           setShowStartDialog(true);
         }
+
+        setLoadError(null);
+        setLoadingGuard(false);
+        return;
       }
-    }
-  }, [guardId]);
+
+      if (attempts < 10) {
+        attempts += 1;
+        retryTimeout = window.setTimeout(loadGuardData, 300);
+      } else {
+        setLoadError("Не удалось загрузить данные охранника. Обновите страницу или выполните вход снова.");
+        setLoadingGuard(false);
+      }
+    };
+
+    setLoadingGuard(true);
+    setLoadError(null);
+    resetState();
+    loadGuardData();
+
+    return () => {
+      isMounted = false;
+      if (retryTimeout) {
+        window.clearTimeout(retryTimeout);
+      }
+    };
+  }, [guardId, guardName]);
   
   // Получаем статистику для мини-панели
   const visits = db.getVisits ? db.getVisits() : [];
@@ -113,18 +173,39 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
 
   const handleStartWork = () => {
     setWorkStarted(true);
+    setShowStartDialog(false);
   };
 
   const handleShiftHandover = () => {
     // Закрываем сессию и делаем logout
-    localStorage.removeItem(`guard_shift_start_${guardId}`);
+    if (guard?.id) {
+      localStorage.removeItem(`guard_shift_start_${guard.id}`);
+    }
+    if (guardId) {
+      localStorage.removeItem(`guard_shift_start_${guardId}`);
+    }
     onLogout();
   };
+
+  if (loadingGuard) {
+    return (
+      <div className="flex items-center justify-center h-[400px]">
+        <p className="text-muted-foreground">Загрузка данных охранника...</p>
+      </div>
+    );
+  }
 
   if (!guard) {
     return (
       <div className="flex items-center justify-center h-[400px]">
-        <p className="text-muted-foreground">Загрузка данных охранника...</p>
+        <div className="text-center space-y-2">
+          <p className="text-muted-foreground">
+            {loadError ?? "Охранник не найден. Проверьте учетные данные и попробуйте снова."}
+          </p>
+          <Button variant="outline" onClick={onLogout}>
+            Вернуться к входу
+          </Button>
+        </div>
       </div>
     );
   }
