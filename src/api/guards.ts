@@ -330,22 +330,75 @@ export async function getGuardById(id: string): Promise<Guard | null> {
 /**
  * Создать нового охранника
  */
-export async function createGuard(data: CreateGuardRequest): Promise<Guard> {
-  await new Promise((resolve) => setTimeout(resolve, 500));
+export async function createGuard(
+  data: CreateGuardRequest,
+  tokens?: Pick<AuthResponse, "accessToken" | "tokenType">
+): Promise<Guard> {
+  if (!tokens?.accessToken || !tokens?.tokenType) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
-  const newGuard: Guard = {
-    id: String(mockGuards.length + 1),
-    ...data,
-    agencyName: "Название агентства",
-    branchName: "Название филиала",
-    checkpointName: "Название КПП",
-    status: "active",
-    visitsCount: 0,
-    hireDate: new Date().toLocaleDateString("ru-RU"),
+    const normalizedStatus = (data.status ?? "active") as Guard["status"];
+    const newGuard: Guard = {
+      id: String(mockGuards.length + 1),
+      ...data,
+      agencyName: "Название агентства",
+      branchName: "Название филиала",
+      checkpointName: "Название КПП",
+      status: normalizedStatus,
+      visitsCount: 0,
+      hireDate: new Date().toLocaleDateString("ru-RU"),
+      active: data.active ?? normalizedStatus === "active",
+      workingDays: data.workingDays ?? mapWorkingDaysForApi(data.workDays),
+      password: data.password,
+    };
+
+    mockGuards.push(newGuard);
+    return newGuard;
+  }
+
+  const payload = {
+    agencyId: data.agencyId,
+    branchId: data.branchId,
+    checkpointId: data.checkpointId,
+    fullName: data.fullName,
+    iin: data.iin,
+    birthDate: normalizeBirthDateForApi(data.birthDate),
+    phone: normalizePhoneNumberForApi(data.phone),
+    email: data.email ?? undefined,
+    loginEmail: data.loginEmail,
+    loginPassword: data.loginPassword ?? data.password ?? "",
+    shiftType: normalizeShiftTypeForApi(data.shiftType),
+    shiftStart: normalizeShiftTimeForApi(data.shiftStart),
+    shiftEnd: normalizeShiftTimeForApi(data.shiftEnd),
+    workingDays: mapWorkingDaysForApi(data.workingDays ?? data.workDays),
+    active: data.active ?? true,
+    status: normalizeStatusForApi(data.status),
   };
 
-  mockGuards.push(newGuard);
-  return newGuard;
+  if (!payload.loginPassword) {
+    delete (payload as { loginPassword?: string }).loginPassword;
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/guards`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `${tokens.tokenType} ${tokens.accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    return parseGuardMutationError(response, "Не удалось создать охранника");
+  }
+
+  const body = (await response.json()) as GuardApiItem;
+
+  return mapGuardFromApi(body, {
+    agencyName: body.agencyName ?? "",
+    branchName: body.branchName ?? "",
+    checkpointName: body.checkpointName ?? "",
+  });
 }
 
 /**
@@ -437,6 +490,118 @@ const WORK_DAY_MAP: Record<string, string> = {
   FRI: "ПТ",
   SAT: "СБ",
   SUN: "ВС",
+};
+
+const WORK_DAY_REVERSE_MAP: Record<string, string> = {
+  ПН: "MON",
+  ВТ: "TUE",
+  СР: "WED",
+  ЧТ: "THU",
+  ПТ: "FRI",
+  СБ: "SAT",
+  ВС: "SUN",
+};
+
+const normalizeBirthDateForApi = (value?: string): string | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+
+  const match = value.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (match) {
+    const [, day, month, year] = match;
+    return `${year}-${month}-${day}`;
+  }
+
+  return value;
+};
+
+const normalizePhoneNumberForApi = (value?: string): string | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  const digits = value.replace(/\D/g, "");
+  if (!digits) {
+    return value.replace(/\s+/g, "");
+  }
+
+  if (digits.startsWith("8") && digits.length === 11) {
+    return `+7${digits.slice(1)}`;
+  }
+
+  if (digits.startsWith("7")) {
+    return `+${digits}`;
+  }
+
+  if (value.trim().startsWith("+")) {
+    return value.replace(/\s+/g, "");
+  }
+
+  return `+${digits}`;
+};
+
+const normalizeShiftTimeForApi = (value?: string): string | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  if (/^\d{2}:\d{2}:\d{2}$/.test(value)) {
+    return value;
+  }
+
+  if (/^\d{2}:\d{2}$/.test(value)) {
+    return `${value}:00`;
+  }
+
+  return value;
+};
+
+const normalizeShiftTypeForApi = (value?: string): "DAY" | "NIGHT" => {
+  const normalized = (value ?? "day").toUpperCase();
+  return normalized === "NIGHT" ? "NIGHT" : "DAY";
+};
+
+const mapWorkingDaysForApi = (days?: string[]): string[] => {
+  if (!Array.isArray(days)) {
+    return [];
+  }
+
+  return days.map((day) => {
+    const upper = day.trim().toUpperCase();
+    return WORK_DAY_REVERSE_MAP[upper as keyof typeof WORK_DAY_REVERSE_MAP] ?? upper;
+  });
+};
+
+const normalizeStatusForApi = (value?: string): string => {
+  if (!value) {
+    return "ACTIVE";
+  }
+
+  const normalized = value.toUpperCase();
+  return normalized;
+};
+
+const parseGuardMutationError = async (
+  response: Response,
+  fallbackMessage: string
+): Promise<never> => {
+  let message = fallbackMessage;
+
+  try {
+    const body = await response.json();
+    if (typeof body?.message === "string") {
+      message = body.message;
+    }
+  } catch (error) {
+    console.error("Ошибка разбора ответа сервера при сохранении охранника", error);
+  }
+
+  throw new Error(message);
 };
 
 function buildGuardsQuery(params: GuardsApiParams): string {
@@ -569,11 +734,11 @@ export function mapGuardFromApi(
     phone: guard.phone,
     email: guard.email,
     agencyId: guard.agencyId,
-    agencyName: names?.agencyName ?? "",
+    agencyName: names?.agencyName ?? guard.agencyName ?? "",
     branchId: guard.branchId,
-    branchName: names?.branchName ?? "",
+    branchName: names?.branchName ?? guard.branchName ?? "",
     checkpointId: guard.checkpointId,
-    checkpointName: names?.checkpointName ?? "",
+    checkpointName: names?.checkpointName ?? guard.checkpointName ?? "",
     shiftType: normalizedShiftType,
     shiftStart: formatTime(guard.shiftStart),
     shiftEnd: formatTime(guard.shiftEnd),

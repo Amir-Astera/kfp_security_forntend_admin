@@ -51,6 +51,8 @@ import {
   GuardsApiParams,
 } from "../api/guards";
 import { fetchAgencies } from "../api/agencies";
+import { getBranches } from "../api/branches";
+import { getCheckpoints } from "../api/checkpoints";
 
 interface GuardsListProps {
   authTokens: AuthResponse | null;
@@ -74,6 +76,7 @@ export function GuardsList({ authTokens }: GuardsListProps) {
   const [guards, setGuards] = useState<Guard[]>([]);
   const [agencies, setAgencies] = useState<any[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
+  const [checkpoints, setCheckpoints] = useState<any[]>([]);
 
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -150,33 +153,43 @@ export function GuardsList({ authTokens }: GuardsListProps) {
         agencies.map((agency: any) => [agency.id, agency.name])
       );
 
-      let branchMap = new Map<string, string>();
-      let checkpointMap = new Map<string, string>();
-
-      try {
-        const branchData = db.getBranches ? db.getBranches() : [];
-        branchMap = new Map(
-          branchData.map((branch: any) => [branch.id, branch.name])
-        );
-      } catch (error) {
-        console.error("Ошибка получения названий филиалов:", error);
+      let branchMap = new Map<string, string>(
+        branches.map((branch: any) => [branch.id, branch.name])
+      );
+      if (branchMap.size === 0) {
+        try {
+          const branchData = db.getBranches ? db.getBranches() : [];
+          branchMap = new Map(
+            branchData.map((branch: any) => [branch.id, branch.name])
+          );
+        } catch (error) {
+          console.error("Ошибка получения названий филиалов:", error);
+        }
       }
 
-      try {
-        const checkpointData = db.getCheckpoints ? db.getCheckpoints() : [];
-        checkpointMap = new Map(
-          checkpointData.map((checkpoint: any) => [checkpoint.id, checkpoint.name])
-        );
-      } catch (error) {
-        console.error("Ошибка получения КПП:", error);
+      let checkpointMap = new Map<string, string>(
+        checkpoints.map((checkpoint: any) => [checkpoint.id, checkpoint.name])
+      );
+      if (checkpointMap.size === 0) {
+        try {
+          const checkpointData = db.getCheckpoints ? db.getCheckpoints() : [];
+          checkpointMap = new Map(
+            checkpointData.map((checkpoint: any) => [checkpoint.id, checkpoint.name])
+          );
+        } catch (error) {
+          console.error("Ошибка получения КПП:", error);
+        }
       }
 
       const mapped = Array.isArray(response.items)
         ? response.items.map((guard) =>
             mapGuardFromApi(guard, {
-              agencyName: agencyNameMap.get(guard.agencyId) ?? "",
-              branchName: branchMap.get(guard.branchId) ?? "",
-              checkpointName: checkpointMap.get(guard.checkpointId) ?? "",
+              agencyName:
+                agencyNameMap.get(guard.agencyId) ?? guard.agencyName ?? "",
+              branchName:
+                branchMap.get(guard.branchId) ?? guard.branchName ?? "",
+              checkpointName:
+                checkpointMap.get(guard.checkpointId) ?? guard.checkpointName ?? "",
             })
           )
         : [];
@@ -196,8 +209,10 @@ export function GuardsList({ authTokens }: GuardsListProps) {
     agencies,
     agencyFilter,
     authTokens,
+    branches,
     branchFilter,
     debouncedSearch,
+    checkpoints,
     loadGuardsFromDb,
     page,
     pageSize,
@@ -244,18 +259,71 @@ export function GuardsList({ authTokens }: GuardsListProps) {
     }
   }, [authTokens]);
 
-  const loadBranches = useCallback(() => {
+  const loadBranches = useCallback(async () => {
+    if (!authTokens?.accessToken) {
+      try {
+        const data = db.getBranches();
+        setBranches(data);
+      } catch (error) {
+        console.error("Ошибка загрузки филиалов:", error);
+      }
+      return;
+    }
+
     try {
-      const data = db.getBranches();
-      setBranches(data);
+      const response = await getBranches(
+        { accessToken: authTokens.accessToken, tokenType: authTokens.tokenType },
+        { page: 0, size: 200 }
+      );
+      const items = Array.isArray(response.items) ? response.items : [];
+      setBranches(items);
     } catch (error) {
       console.error("Ошибка загрузки филиалов:", error);
+      try {
+        const data = db.getBranches();
+        setBranches(data);
+      } catch (fallbackError) {
+        console.error("Ошибка загрузки филиалов из локальной базы:", fallbackError);
+      }
     }
-  }, []);
+  }, [authTokens]);
+
+  const loadCheckpoints = useCallback(async () => {
+    if (!authTokens?.accessToken) {
+      try {
+        const data = db.getCheckpoints ? db.getCheckpoints() : [];
+        setCheckpoints(data);
+      } catch (error) {
+        console.error("Ошибка загрузки КПП:", error);
+      }
+      return;
+    }
+
+    try {
+      const response = await getCheckpoints(
+        { accessToken: authTokens.accessToken, tokenType: authTokens.tokenType },
+        { page: 0, size: 200 }
+      );
+      const items = Array.isArray(response.items) ? response.items : [];
+      setCheckpoints(items);
+    } catch (error) {
+      console.error("Ошибка загрузки КПП:", error);
+      try {
+        const data = db.getCheckpoints ? db.getCheckpoints() : [];
+        setCheckpoints(data);
+      } catch (fallbackError) {
+        console.error("Ошибка загрузки КПП из локальной базы:", fallbackError);
+      }
+    }
+  }, [authTokens]);
 
   useEffect(() => {
     loadBranches();
   }, [loadBranches]);
+
+  useEffect(() => {
+    loadCheckpoints();
+  }, [loadCheckpoints]);
 
   useEffect(() => {
     loadAgencyOptions();
