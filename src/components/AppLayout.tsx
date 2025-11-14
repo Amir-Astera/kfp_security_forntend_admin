@@ -30,8 +30,9 @@ import {
 } from "./ui/dropdown-menu";
 import { db } from "../services";
 import { ShiftHandoverDialog } from "./ShiftHandoverDialog";
-import type { AuthResponse, Guard } from "../types";
+import type { AuthResponse, Guard, GuardShiftEventDetail } from "../types";
 import { closeGuardSession } from "../api/sessions";
+import { getTodayGuardShift, finishTodayGuardShift } from "../api/guardShifts";
 import { toast } from "sonner";
 
 type UserRole = "superadmin" | "agency" | "guard";
@@ -83,6 +84,47 @@ export function AppLayout({
   const [showHandoverDialog, setShowHandoverDialog] = useState(false);
   const [guardData, setGuardData] = useState<Guard | null>(null);
 
+  const authHeaders = useMemo(() => {
+    if (!authTokens?.accessToken || !authTokens?.tokenType) {
+      return null;
+    }
+
+    return {
+      accessToken: authTokens.accessToken,
+      tokenType: authTokens.tokenType,
+    } as const;
+  }, [authTokens]);
+
+  const getShiftRange = useCallback(() => {
+    if (!guardData) {
+      return "—";
+    }
+
+    const shiftStart = guardData.shiftStart?.trim() ?? "";
+    const shiftEnd = guardData.shiftEnd?.trim() ?? "";
+
+    if (shiftStart && shiftEnd) {
+      return `${shiftStart} - ${shiftEnd}`;
+    }
+
+    return shiftStart || shiftEnd || "—";
+  }, [guardData]);
+
+  const getCheckpointName = useCallback(() => {
+    if (guardData?.checkpointName) {
+      return guardData.checkpointName;
+    }
+
+    if (guardData?.checkpointId && db.getCheckpointById) {
+      const checkpoint = db.getCheckpointById(guardData.checkpointId);
+      if (checkpoint?.name) {
+        return checkpoint.name;
+      }
+    }
+
+    return "—";
+  }, [guardData]);
+
   const guardHeaderDetails = useMemo(() => {
     if (!guardData) {
       return null;
@@ -112,25 +154,114 @@ export function AppLayout({
 
   // Загружаем информацию о смене для охранников
   useEffect(() => {
-    if (userRole === "guard" && userId) {
-      const guard = db.getGuardById ? db.getGuardById(userId) : null;
-      setGuardData(guard);
-      
-      if (guard) {
-        const checkpointData = db.getCheckpointById ? db.getCheckpointById(guard.checkpointId) : null;
-        const shiftStart = localStorage.getItem(`guard_shift_start_${userId}`);
-        
-        if (shiftStart && checkpointData) {
-          setGuardInfo({
-            shift: `${guard.shiftStart} - ${guard.shiftEnd}`,
-            checkpoint: checkpointData.name
-          });
-        }
-      }
+    if (userRole !== "guard" || !userId) {
+      setGuardData(null);
+      setGuardInfo(null);
+      return;
     }
-  }, [userRole, userId]);
+
+    const guard = db.getGuardById ? db.getGuardById(userId) : null;
+    setGuardData(guard);
+
+    const checkpointData =
+      guard && db.getCheckpointById ? db.getCheckpointById(guard.checkpointId) : null;
+
+    const checkpointLabel = checkpointData?.name ?? guard?.checkpointName ?? "—";
+    const shiftRange = guard
+      ? (() => {
+          const start = guard.shiftStart?.trim() ?? "";
+          const end = guard.shiftEnd?.trim() ?? "";
+          if (start && end) {
+            return `${start} - ${end}`;
+          }
+          return start || end || "—";
+        })()
+      : "—";
+
+    if (typeof window !== "undefined") {
+      const shiftStart = window.localStorage.getItem(`guard_shift_start_${userId}`);
+      if (shiftStart && guard) {
+        setGuardInfo({
+          shift: shiftRange,
+          checkpoint: checkpointLabel,
+        });
+      } else {
+        setGuardInfo(null);
+      }
+    } else {
+      setGuardInfo(null);
+    }
+
+    if (!authHeaders) {
+      return;
+    }
+
+    let isActive = true;
+
+    getTodayGuardShift(authHeaders)
+      .then((shift) => {
+        if (!isActive) {
+          return;
+        }
+
+        if (shift.hasShift && shift.shiftStatus === "ACTIVE") {
+          const checkpointName =
+            checkpointLabel !== "—" ? checkpointLabel : shift.checkpointName ?? "—";
+
+          setGuardInfo({
+            shift: guard ? shiftRange : "Активная смена",
+            checkpoint: checkpointName,
+          });
+        } else {
+          setGuardInfo(null);
+        }
+      })
+      .catch((error) => {
+        console.error("Не удалось получить статус смены охранника", error);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [authHeaders, userId, userRole]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || userRole !== "guard") {
+      return;
+    }
+
+    const handleShiftUpdated = (event: CustomEvent<GuardShiftEventDetail>) => {
+      const detail = event.detail;
+      if (!detail) {
+        return;
+      }
+
+      if (detail.status === "ACTIVE") {
+        setGuardInfo({
+          shift: getShiftRange(),
+          checkpoint: getCheckpointName(),
+        });
+      } else if (detail.status === "DONE" || detail.status === "PLANNED") {
+        setGuardInfo(null);
+      }
+    };
+
+    window.addEventListener(
+      "guard-shift-updated",
+      handleShiftUpdated as unknown as EventListener
+    );
+
+    return () => {
+      window.removeEventListener(
+        "guard-shift-updated",
+        handleShiftUpdated as unknown as EventListener
+      );
+    };
+  }, [getCheckpointName, getShiftRange, userId, userRole]);
 
   const handleShiftHandover = useCallback(async () => {
+    setShowHandoverDialog(false);
+
     if (userRole === "guard" && userId && typeof window !== "undefined") {
       const storage = window.localStorage;
       const sessionKey = `guard_shift_session_${userId}`;
@@ -138,36 +269,53 @@ export function AppLayout({
       const shiftIdKey = `guard_shift_id_${userId}`;
       const sessionId = storage.getItem(sessionKey);
 
-      const tokens =
-        authTokens?.accessToken && authTokens?.tokenType
-          ? {
-              accessToken: authTokens.accessToken,
-              tokenType: authTokens.tokenType,
-            }
-          : null;
-
-      if (sessionId && tokens) {
+      if (!authHeaders) {
+        toast.error("Нет данных авторизации для завершения смены");
+      } else {
         try {
-          await closeGuardSession(sessionId, tokens);
+          const finishResult = await finishTodayGuardShift(authHeaders);
+          const detail: GuardShiftEventDetail = {
+            status: finishResult.shiftStatus ?? "DONE",
+            shiftId: finishResult.shiftId,
+            finishedAt: finishResult.finishedAt,
+          };
+          window.dispatchEvent(
+            new CustomEvent<GuardShiftEventDetail>("guard-shift-updated", { detail })
+          );
         } catch (error) {
-          console.error("Не удалось закрыть сессию охранника", error);
+          console.error("Не удалось завершить смену", error);
           const message =
             error instanceof Error && error.message
               ? error.message
-              : "Не удалось закрыть смену";
+              : "Не удалось завершить смену";
           toast.error(message);
+          return;
+        }
+
+        if (sessionId) {
+          try {
+            await closeGuardSession(sessionId, authHeaders);
+          } catch (error) {
+            console.error("Не удалось закрыть сессию охранника", error);
+            const message =
+              error instanceof Error && error.message
+                ? error.message
+                : "Не удалось закрыть смену";
+            toast.error(message);
+          }
         }
       }
 
       storage.removeItem(sessionKey);
       storage.removeItem(shiftStartKey);
       storage.removeItem(shiftIdKey);
+      setGuardInfo(null);
     }
 
     if (onLogout) {
       onLogout();
     }
-  }, [authTokens, onLogout, userId, userRole]);
+  }, [authHeaders, onLogout, userId, userRole]);
 
   return (
     <div className="flex h-screen bg-background">
