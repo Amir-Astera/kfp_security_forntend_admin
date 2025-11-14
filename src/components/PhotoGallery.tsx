@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -13,9 +13,9 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from "./ui/dialog";
 import { Badge } from "./ui/badge";
 import {
@@ -28,177 +28,285 @@ import {
   Shield,
   X,
   Filter,
+  AlertCircle,
+  RefreshCw,
 } from "lucide-react";
-import { Avatar, AvatarFallback } from "./ui/avatar";
-import { StatusBadge } from "./StatusBadge";
+import { Skeleton } from "./ui/skeleton";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
+import type { AuthResponse, ShiftPhotoApiItem } from "../types";
+import { buildFileUrl, fetchShiftEntrancePhotos } from "../api/shiftPhotos";
 
-interface PhotoEntry {
-  id: string;
-  guardName: string;
-  guardId: string;
-  timestamp: Date;
-  checkpointName: string;
-  checkpointId: string;
-  branchName: string;
-  agencyName: string;
-  shiftType: "day" | "night";
-  visitId: string;
-  direction: "entry" | "exit";
+const PAGE = 0;
+const PAGE_SIZE = 50;
+
+type DateFilterValue = "day" | "week" | "month";
+
+const DATE_FILTER_LABELS: Record<DateFilterValue, string> = {
+  day: "Сегодня",
+  week: "Последние 7 дней",
+  month: "Последний месяц",
+};
+
+type UserRole = "superadmin" | "agency" | "guard";
+
+interface PhotoGalleryProps {
+  authTokens: AuthResponse | null;
+  userRole?: UserRole;
 }
 
-// Моковые данные фотографий
-const MOCK_PHOTOS: PhotoEntry[] = [
-  {
-    id: "p1",
-    guardName: "Нурсултан Абдуллаев",
-    guardId: "g1",
-    timestamp: new Date(2025, 10, 4, 8, 0),
-    checkpointName: "КПП Главный въезд",
-    checkpointId: "cp1",
-    branchName: "Филиал Алматы",
-    agencyName: "ТОО «Казахстан Секьюрити»",
-    shiftType: "day",
-    visitId: "v1",
-    direction: "entry",
-  },
-  {
-    id: "p2",
-    guardName: "Ерлан Төлеген",
-    guardId: "g2",
-    timestamp: new Date(2025, 10, 4, 8, 15),
-    checkpointName: "КПП Склад №1",
-    checkpointId: "cp2",
-    branchName: "Филиал Алматы",
-    agencyName: "ТОО «Надежная Охрана»",
-    shiftType: "day",
-    visitId: "v2",
-    direction: "entry",
-  },
-  {
-    id: "p3",
-    guardName: "Асхат Жұмабек",
-    guardId: "g3",
-    timestamp: new Date(2025, 10, 4, 20, 0),
-    checkpointName: "КПП Офисное здание",
-    checkpointId: "cp3",
-    branchName: "Филиал Астана",
-    agencyName: "ТОО «Казахстан Секьюрити»",
-    shiftType: "night",
-    visitId: "v3",
-    direction: "entry",
-  },
-  {
-    id: "p4",
-    guardName: "Дархан Смағұлов",
-    guardId: "g4",
-    timestamp: new Date(2025, 10, 4, 8, 30),
-    checkpointName: "КПП Производство",
-    checkpointId: "cp4",
-    branchName: "Филиал Шымкент",
-    agencyName: "ТОО «Защита Плюс»",
-    shiftType: "day",
-    visitId: "v4",
-    direction: "entry",
-  },
-  {
-    id: "p5",
-    guardName: "Бауыржан Кенжебеков",
-    guardId: "g5",
-    timestamp: new Date(2025, 10, 3, 8, 0),
-    checkpointName: "КПП Главный въезд",
-    checkpointId: "cp1",
-    branchName: "Филиал Алматы",
-    agencyName: "ТОО «Казахстан Секьюрити»",
-    shiftType: "day",
-    visitId: "v5",
-    direction: "entry",
-  },
-  {
-    id: "p6",
-    guardName: "Марат Әбдіғали",
-    guardId: "g6",
-    timestamp: new Date(2025, 10, 3, 20, 15),
-    checkpointName: "КПП Склад №2",
-    checkpointId: "cp5",
-    branchName: "Филиал Караганда",
-    agencyName: "ТОО «Надежная Охрана»",
-    shiftType: "night",
-    visitId: "v6",
-    direction: "entry",
-  },
-  {
-    id: "p7",
-    guardName: "Серік Жақыпов",
-    guardId: "g7",
-    timestamp: new Date(2025, 10, 4, 8, 45),
-    checkpointName: "КПП Административное здание",
-    checkpointId: "cp6",
-    branchName: "Филиал Астана",
-    agencyName: "ТОО «Казахстан Секьюрити»",
-    shiftType: "day",
-    visitId: "v7",
-    direction: "entry",
-  },
-  {
-    id: "p8",
-    guardName: "Болат Қасымбеков",
-    guardId: "g8",
-    timestamp: new Date(2025, 10, 4, 9, 0),
-    checkpointName: "КПП Парковка",
-    checkpointId: "cp7",
-    branchName: "Филиал Атырау",
-    agencyName: "ТОО «Защита Плюс»",
-    shiftType: "day",
-    visitId: "v8",
-    direction: "entry",
-  },
-];
+interface GalleryPhoto {
+  id: string;
+  shiftId: string;
+  guardId: string;
+  guardName: string;
+  agencyId?: string;
+  agencyName?: string;
+  branchId?: string;
+  branchName?: string;
+  checkpointId?: string;
+  checkpointName?: string;
+  kind: "START" | "END";
+  shiftType?: "day" | "night" | null;
+  timestamp: Date;
+  takenAtRaw?: string | null;
+  fileId?: string;
+  fileFormat?: string;
+  fileUrl?: string | null;
+  previewUrl?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
-export function PhotoGallery() {
-  const [selectedPhoto, setSelectedPhoto] = useState<PhotoEntry | null>(null);
+interface FilterOption {
+  value: string;
+  label: string;
+}
+
+function getDateRange(value: DateFilterValue): { from: Date; to: Date } {
+  const now = new Date();
+  const to = new Date(now);
+  const from = new Date(now);
+
+  to.setMilliseconds(999);
+
+  switch (value) {
+    case "week": {
+      from.setHours(0, 0, 0, 0);
+      from.setDate(from.getDate() - 6);
+      break;
+    }
+    case "month": {
+      from.setHours(0, 0, 0, 0);
+      from.setMonth(from.getMonth() - 1);
+      break;
+    }
+    case "day":
+    default: {
+      from.setHours(0, 0, 0, 0);
+      break;
+    }
+  }
+
+  return { from, to };
+}
+
+function mapShiftPhoto(item: ShiftPhotoApiItem): GalleryPhoto {
+  const rawTimestamp = item.takenAt ?? item.createdAt ?? item.updatedAt ?? null;
+  const timestampCandidate = rawTimestamp ? new Date(rawTimestamp) : new Date();
+  const timestamp = Number.isNaN(timestampCandidate.getTime())
+    ? new Date()
+    : timestampCandidate;
+
+  const normalizedShiftType = item.shiftType
+    ? String(item.shiftType).toLowerCase()
+    : null;
+
+  return {
+    id: item.id,
+    shiftId: item.shiftId,
+    guardId: item.guardId,
+    guardName:
+      item.guardFullName ||
+      item.guardName ||
+      item.guardId ||
+      "Неизвестный охранник",
+    agencyId: item.agencyId ?? undefined,
+    agencyName: item.agencyName ?? undefined,
+    branchId: item.branchId ?? undefined,
+    branchName: item.branchName ?? undefined,
+    checkpointId: item.checkpointId ?? undefined,
+    checkpointName: item.checkpointName ?? undefined,
+    kind: item.kind,
+    shiftType:
+      normalizedShiftType === "day" || normalizedShiftType === "night"
+        ? (normalizedShiftType as "day" | "night")
+        : null,
+    timestamp,
+    takenAtRaw: rawTimestamp,
+    fileId: item.fileId,
+    fileFormat: item.fileFormat,
+    fileUrl: item.fileUrl ?? null,
+    previewUrl: item.previewUrl ?? null,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+}
+
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("")
+    .slice(0, 2) || "—";
+}
+
+function includesValue(values: Array<string | undefined>, target: string): boolean {
+  return values.some((value) => value && value === target);
+}
+
+export function PhotoGallery({ authTokens, userRole = "superadmin" }: PhotoGalleryProps) {
+  const [photos, setPhotos] = useState<GalleryPhoto[]>([]);
+  const [total, setTotal] = useState(0);
+  const [selectedPhoto, setSelectedPhoto] = useState<GalleryPhoto | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedAgency, setSelectedAgency] = useState<string>("all");
   const [selectedBranch, setSelectedBranch] = useState<string>("all");
   const [selectedShift, setSelectedShift] = useState<string>("all");
-  const [selectedDate, setSelectedDate] = useState<string>("all");
+  const [selectedDate, setSelectedDate] = useState<DateFilterValue>("day");
   const [showFilters, setShowFilters] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [brokenPreviews, setBrokenPreviews] = useState<Record<string, boolean>>({});
 
-  // Уникальные значения для фильтров
-  const agencies = useMemo(
-    () => Array.from(new Set(MOCK_PHOTOS.map((p) => p.agencyName))),
-    []
-  );
-  const branches = useMemo(
-    () => Array.from(new Set(MOCK_PHOTOS.map((p) => p.branchName))),
-    []
-  );
+  const dateRange = useMemo(() => getDateRange(selectedDate), [selectedDate]);
 
-  // Фильтрация фотографий
+  const loadPhotos = useCallback(async () => {
+    setIsLoading(true);
+
+    if (!authTokens?.accessToken || !authTokens?.tokenType) {
+      setError("Отсутствуют авторизационные данные для загрузки фотографий.");
+      setPhotos([]);
+      setTotal(0);
+      setIsLoading(false);
+      return;
+    }
+
+    const range = getDateRange(selectedDate);
+
+    try {
+      setError(null);
+      const response = await fetchShiftEntrancePhotos(
+        {
+          page: PAGE,
+          size: PAGE_SIZE,
+          from: range.from.toISOString(),
+          to: range.to.toISOString(),
+        },
+        {
+          accessToken: authTokens.accessToken,
+          tokenType: authTokens.tokenType,
+        }
+      );
+
+      const mapped = Array.isArray(response.items)
+        ? response.items.map(mapShiftPhoto)
+        : [];
+
+      mapped.sort(
+        (a, b) => b.timestamp.getTime() - a.timestamp.getTime()
+      );
+
+      setPhotos(mapped);
+      setTotal(response.total ?? mapped.length);
+    } catch (fetchError) {
+      console.error("Ошибка загрузки фотографий смен:", fetchError);
+      setPhotos([]);
+      setTotal(0);
+      setError(
+        fetchError instanceof Error
+          ? fetchError.message
+          : "Не удалось загрузить фотографии"
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [authTokens, selectedDate]);
+
+  useEffect(() => {
+    loadPhotos();
+  }, [loadPhotos]);
+
+  useEffect(() => {
+    setBrokenPreviews({});
+  }, [photos]);
+
+  const agencies = useMemo<FilterOption[]>(() => {
+    const map = new Map<string, string>();
+
+    photos.forEach((photo) => {
+      const value = photo.agencyId || photo.agencyName;
+      const label = photo.agencyName || photo.agencyId;
+      if (value && label && !map.has(value)) {
+        map.set(value, label);
+      }
+    });
+
+    return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
+  }, [photos]);
+
+  const branches = useMemo<FilterOption[]>(() => {
+    const map = new Map<string, string>();
+
+    photos.forEach((photo) => {
+      const value = photo.branchId || photo.branchName;
+      const label = photo.branchName || photo.branchId;
+      if (value && label && !map.has(value)) {
+        map.set(value, label);
+      }
+    });
+
+    return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
+  }, [photos]);
+
   const filteredPhotos = useMemo(() => {
-    return MOCK_PHOTOS.filter((photo) => {
+    const query = searchQuery.trim().toLowerCase();
+    const fromTime = dateRange.from.getTime();
+    const toTime = dateRange.to.getTime();
+
+    return photos.filter((photo) => {
       const matchesSearch =
-        searchQuery === "" ||
-        photo.guardName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        photo.checkpointName.toLowerCase().includes(searchQuery.toLowerCase());
+        query === "" ||
+        [
+          photo.guardName,
+          photo.checkpointName,
+          photo.branchName,
+          photo.agencyName,
+        ]
+          .filter(Boolean)
+          .some((field) => field!.toLowerCase().includes(query));
 
       const matchesAgency =
-        selectedAgency === "all" || photo.agencyName === selectedAgency;
+        userRole === "agency" ||
+        selectedAgency === "all" ||
+        includesValue(
+          [photo.agencyId, photo.agencyName],
+          selectedAgency
+        );
 
       const matchesBranch =
-        selectedBranch === "all" || photo.branchName === selectedBranch;
+        selectedBranch === "all" ||
+        includesValue(
+          [photo.branchId, photo.branchName],
+          selectedBranch
+        );
 
       const matchesShift =
         selectedShift === "all" || photo.shiftType === selectedShift;
 
-      const matchesDate =
-        selectedDate === "all" ||
-        (selectedDate === "today" &&
-          format(photo.timestamp, "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd")) ||
-        (selectedDate === "yesterday" &&
-          format(photo.timestamp, "yyyy-MM-dd") ===
-            format(new Date(Date.now() - 86400000), "yyyy-MM-dd"));
+      const time = photo.timestamp.getTime();
+      const matchesDate = time >= fromTime && time <= toTime;
 
       return (
         matchesSearch &&
@@ -208,27 +316,40 @@ export function PhotoGallery() {
         matchesDate
       );
     });
-  }, [searchQuery, selectedAgency, selectedBranch, selectedShift, selectedDate]);
+  }, [photos, searchQuery, selectedAgency, selectedBranch, selectedShift, dateRange, userRole]);
+
+  const activeFiltersCount = [
+    searchQuery.trim() !== "",
+    selectedDate !== "day",
+    userRole !== "agency" && selectedAgency !== "all",
+    selectedBranch !== "all",
+    selectedShift !== "all",
+  ].filter(Boolean).length;
 
   const resetFilters = () => {
     setSearchQuery("");
     setSelectedAgency("all");
     setSelectedBranch("all");
     setSelectedShift("all");
-    setSelectedDate("all");
+    setSelectedDate("day");
   };
 
-  const activeFiltersCount = [
-    searchQuery !== "",
-    selectedAgency !== "all",
-    selectedBranch !== "all",
-    selectedShift !== "all",
-    selectedDate !== "all",
-  ].filter(Boolean).length;
+  const handleImageError = useCallback((photoId: string) => {
+    setBrokenPreviews((prev) => ({ ...prev, [photoId]: true }));
+  }, []);
+
+  const selectedPhotoFullUrl = selectedPhoto
+    ? buildFileUrl(selectedPhoto.fileUrl) ||
+      buildFileUrl(selectedPhoto.previewUrl)
+    : null;
+
+  const selectedPhotoPreviewUrl = selectedPhoto
+    ? buildFileUrl(selectedPhoto.previewUrl) ||
+      buildFileUrl(selectedPhoto.fileUrl)
+    : null;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-foreground mb-2">Фото-вступления на смену</h1>
@@ -237,16 +358,11 @@ export function PhotoGallery() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="secondary">
-            Всего фотографий: {MOCK_PHOTOS.length}
-          </Badge>
-          <Badge variant="outline">
-            Показано: {filteredPhotos.length}
-          </Badge>
+          <Badge variant="secondary">Всего: {total}</Badge>
+          <Badge variant="outline">Показано: {filteredPhotos.length}</Badge>
         </div>
       </div>
 
-      {/* Filters */}
       <Card className="p-4">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
@@ -258,11 +374,7 @@ export function PhotoGallery() {
           </div>
           <div className="flex items-center gap-2">
             {activeFiltersCount > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={resetFilters}
-              >
+              <Button variant="ghost" size="sm" onClick={resetFilters}>
                 <X className="w-4 h-4 mr-2" />
                 Сбросить
               </Button>
@@ -270,7 +382,7 @@ export function PhotoGallery() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setShowFilters(!showFilters)}
+              onClick={() => setShowFilters((prev) => !prev)}
             >
               {showFilters ? "Скрыть" : "Показать"}
             </Button>
@@ -279,77 +391,87 @@ export function PhotoGallery() {
 
         {showFilters && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-            {/* Search */}
             <div className="space-y-2">
               <Label>Поиск</Label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
-                  placeholder="Имя или КПП..."
+                  placeholder="Имя, КПП или филиал..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(event) => setSearchQuery(event.target.value)}
                   className="pl-9"
                 />
               </div>
             </div>
 
-            {/* Date */}
             <div className="space-y-2">
               <Label>Дата</Label>
-              <Select value={selectedDate} onValueChange={setSelectedDate}>
+              <Select
+                value={selectedDate}
+                onValueChange={(value) =>
+                  setSelectedDate(value as DateFilterValue)
+                }
+              >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Выберите период" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Все даты</SelectItem>
-                  <SelectItem value="today">Сегодня</SelectItem>
-                  <SelectItem value="yesterday">Вчера</SelectItem>
+                  <SelectItem value="day">{DATE_FILTER_LABELS.day}</SelectItem>
+                  <SelectItem value="week">{DATE_FILTER_LABELS.week}</SelectItem>
+                  <SelectItem value="month">{DATE_FILTER_LABELS.month}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            {/* Agency */}
-            <div className="space-y-2">
-              <Label>Агентство</Label>
-              <Select value={selectedAgency} onValueChange={setSelectedAgency}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Все агентства</SelectItem>
-                  {agencies.map((agency) => (
-                    <SelectItem key={agency} value={agency}>
-                      {agency}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {userRole !== "agency" && (
+              <div className="space-y-2">
+                <Label>Агентство</Label>
+                <Select
+                  value={selectedAgency}
+                  onValueChange={setSelectedAgency}
+                  disabled={agencies.length === 0}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Все агентства" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Все агентства</SelectItem>
+                    {agencies.map((agency) => (
+                      <SelectItem key={agency.value} value={agency.value}>
+                        {agency.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
-            {/* Branch */}
             <div className="space-y-2">
               <Label>Филиал</Label>
-              <Select value={selectedBranch} onValueChange={setSelectedBranch}>
+              <Select
+                value={selectedBranch}
+                onValueChange={setSelectedBranch}
+                disabled={branches.length === 0}
+              >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Все филиалы" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Все филиалы</SelectItem>
                   {branches.map((branch) => (
-                    <SelectItem key={branch} value={branch}>
-                      {branch}
+                    <SelectItem key={branch.value} value={branch.value}>
+                      {branch.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
-            {/* Shift */}
             <div className="space-y-2">
               <Label>Смена</Label>
               <Select value={selectedShift} onValueChange={setSelectedShift}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Все смены" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Все смены</SelectItem>
@@ -362,8 +484,35 @@ export function PhotoGallery() {
         )}
       </Card>
 
-      {/* Photo Grid */}
-      {filteredPhotos.length === 0 ? (
+      {error && (
+        <Card className="p-4 border-destructive/30 bg-destructive/10 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div className="flex items-start gap-3 text-destructive">
+            <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+            <div>
+              <h3 className="font-semibold">Не удалось загрузить фотографии</h3>
+              <p className="text-sm">{error}</p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={loadPhotos}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Повторить
+          </Button>
+        </Card>
+      )}
+
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {Array.from({ length: 8 }).map((_, index) => (
+            <Card key={`photo-skeleton-${index}`} className="overflow-hidden">
+              <Skeleton className="aspect-square w-full" />
+              <div className="p-3 space-y-2">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-3 w-1/2" />
+              </div>
+            </Card>
+          ))}
+        </div>
+      ) : filteredPhotos.length === 0 ? (
         <Card className="p-12 text-center">
           <p className="text-muted-foreground">
             Нет фотографий, соответствующих выбранным фильтрам
@@ -371,50 +520,67 @@ export function PhotoGallery() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filteredPhotos.map((photo) => (
-            <Card
-              key={photo.id}
-              className="overflow-hidden cursor-pointer hover:shadow-lg transition-shadow group"
-              onClick={() => setSelectedPhoto(photo)}
-            >
-              <div className="aspect-square relative overflow-hidden bg-slate-100 flex items-center justify-center">
-                <Avatar className="w-32 h-32">
-                  <AvatarFallback className="text-3xl">
-                    {photo.guardName
-                      .split(" ")
-                      .map((n) => n[0])
-                      .join("")
-                      .substring(0, 2)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="absolute top-2 right-2">
-                  <StatusBadge status={photo.shiftType} />
+          {filteredPhotos.map((photo) => {
+            const previewUrl = buildFileUrl(photo.previewUrl) || buildFileUrl(photo.fileUrl);
+            const showPreview = previewUrl && !brokenPreviews[photo.id];
+
+            return (
+              <Card
+                key={photo.id}
+                className="overflow-hidden cursor-pointer hover:shadow-lg transition-shadow group"
+                onClick={() => setSelectedPhoto(photo)}
+              >
+                <div className="aspect-square relative overflow-hidden bg-slate-100">
+                  {showPreview ? (
+                    <img
+                      src={previewUrl}
+                      alt={`Фото ${photo.guardName}`}
+                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      onError={() => handleImageError(photo.id)}
+                    />
+                  ) : (
+                    <div className="h-full w-full flex items-center justify-center text-4xl font-semibold text-muted-foreground">
+                      {getInitials(photo.guardName)}
+                    </div>
+                  )}
+                  <div className="absolute top-2 left-2">
+                    <Badge variant="secondary" className="bg-background/80 backdrop-blur text-foreground">
+                      {photo.kind === "START" ? "Начало смены" : "Завершение"}
+                    </Badge>
+                  </div>
                 </div>
-              </div>
-              <div className="p-3 space-y-2">
-                <div className="flex items-center gap-2">
-                  <User className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                  <span className="text-foreground truncate">{photo.guardName}</span>
+                <div className="p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <User className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    <span className="text-foreground truncate">{photo.guardName}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Clock className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span className="truncate">
+                      {format(photo.timestamp, "dd MMM, HH:mm", { locale: ru })}
+                    </span>
+                  </div>
+                  {photo.checkpointName && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span className="truncate">{photo.checkpointName}</span>
+                    </div>
+                  )}
+                  {photo.branchName && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Building2 className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span className="truncate">{photo.branchName}</span>
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Clock className="w-3.5 h-3.5 flex-shrink-0" />
-                  <span className="truncate">
-                    {format(photo.timestamp, "dd MMM, HH:mm", { locale: ru })}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
-                  <span className="truncate">{photo.checkpointName}</span>
-                </div>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </div>
       )}
 
-      {/* Photo Detail Dialog */}
       <Dialog open={!!selectedPhoto} onOpenChange={() => setSelectedPhoto(null)}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-4xl">
           {selectedPhoto && (
             <>
               <DialogHeader>
@@ -425,23 +591,42 @@ export function PhotoGallery() {
               </DialogHeader>
 
               <div className="grid md:grid-cols-2 gap-6">
-                {/* Photo */}
                 <div className="space-y-4">
-                  <div className="aspect-square relative overflow-hidden rounded-lg bg-slate-100 flex items-center justify-center">
-                    <Avatar className="w-48 h-48">
-                      <AvatarFallback className="text-6xl">
-                        {selectedPhoto.guardName
-                          .split(" ")
-                          .map((n) => n[0])
-                          .join("")
-                          .substring(0, 2)}
-                      </AvatarFallback>
-                    </Avatar>
+                  <div className="aspect-square relative overflow-hidden rounded-lg bg-slate-100">
+                    {selectedPhotoPreviewUrl ? (
+                      <img
+                        src={selectedPhotoPreviewUrl}
+                        alt={`Фото ${selectedPhoto.guardName}`}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="h-full w-full flex items-center justify-center text-6xl font-semibold text-muted-foreground">
+                        {getInitials(selectedPhoto.guardName)}
+                      </div>
+                    )}
                   </div>
+                  {selectedPhotoFullUrl && (
+                    <Button asChild variant="outline" className="w-full">
+                      <a
+                        href={selectedPhotoFullUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Открыть оригинал
+                      </a>
+                    </Button>
+                  )}
                 </div>
 
-                {/* Details */}
                 <div className="space-y-4">
+                  <div>
+                    <Badge variant="secondary">
+                      {selectedPhoto.kind === "START"
+                        ? "Начало смены"
+                        : "Завершение смены"}
+                    </Badge>
+                  </div>
+
                   <div>
                     <h3 className="text-muted-foreground mb-1">Охранник</h3>
                     <div className="flex items-center gap-2">
@@ -462,41 +647,64 @@ export function PhotoGallery() {
                     </div>
                   </div>
 
-                  <div>
-                    <h3 className="text-muted-foreground mb-1">Смена</h3>
-                    <StatusBadge status={selectedPhoto.shiftType} />
-                  </div>
-
-                  <div>
-                    <h3 className="text-muted-foreground mb-1">КПП</h3>
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-4 h-4 text-primary" />
-                      <span className="text-foreground">
-                        {selectedPhoto.checkpointName}
-                      </span>
+                  {selectedPhoto.checkpointName && (
+                    <div>
+                      <h3 className="text-muted-foreground mb-1">КПП</h3>
+                      <div className="flex items-center gap-2">
+                        <MapPin className="w-4 h-4 text-primary" />
+                        <span className="text-foreground">
+                          {selectedPhoto.checkpointName}
+                        </span>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
-                  <div>
-                    <h3 className="text-muted-foreground mb-1">Филиал</h3>
-                    <div className="flex items-center gap-2">
-                      <Building2 className="w-4 h-4 text-primary" />
-                      <span className="text-foreground">{selectedPhoto.branchName}</span>
+                  {selectedPhoto.branchName && (
+                    <div>
+                      <h3 className="text-muted-foreground mb-1">Филиал</h3>
+                      <div className="flex items-center gap-2">
+                        <Building2 className="w-4 h-4 text-primary" />
+                        <span className="text-foreground">
+                          {selectedPhoto.branchName}
+                        </span>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
-                  <div>
-                    <h3 className="text-muted-foreground mb-1">Агентство</h3>
-                    <div className="flex items-center gap-2">
-                      <Shield className="w-4 h-4 text-primary" />
-                      <span className="text-foreground">{selectedPhoto.agencyName}</span>
+                  {selectedPhoto.agencyName && (
+                    <div>
+                      <h3 className="text-muted-foreground mb-1">Агентство</h3>
+                      <div className="flex items-center gap-2">
+                        <Shield className="w-4 h-4 text-primary" />
+                        <span className="text-foreground">
+                          {selectedPhoto.agencyName}
+                        </span>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
-                  <div className="pt-4 border-t">
-                    <div className="text-sm text-muted-foreground">
-                      ID визита: <span className="text-foreground">{selectedPhoto.visitId}</span>
-                    </div>
+                  <div className="space-y-2 pt-4 border-t">
+                    <p className="text-sm text-muted-foreground">
+                      ID смены: <span className="text-foreground">{selectedPhoto.shiftId}</span>
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      ID охранника: <span className="text-foreground">{selectedPhoto.guardId}</span>
+                    </p>
+                    {selectedPhoto.fileId && (
+                      <p className="text-sm text-muted-foreground">
+                        ID файла: <span className="text-foreground">{selectedPhoto.fileId}</span>
+                      </p>
+                    )}
+                    {selectedPhoto.fileFormat && (
+                      <p className="text-sm text-muted-foreground">
+                        Формат файла: <span className="text-foreground">{selectedPhoto.fileFormat}</span>
+                      </p>
+                    )}
+                    {selectedPhoto.takenAtRaw && (
+                      <p className="text-sm text-muted-foreground">
+                        Зафиксировано: <span className="text-foreground">{selectedPhoto.takenAtRaw}</span>
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
