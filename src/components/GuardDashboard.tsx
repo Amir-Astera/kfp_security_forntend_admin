@@ -643,7 +643,7 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
             visitPlaces: payload.places.length > 0 ? payload.places : undefined,
             visitPlace: payload.places[0],
             notes: payload.notes,
-            kind: payload.hasVehicle ? "VEHICLE" : "PERSON",
+            kind: payload.hasVehicle ? "TRANSPORT" : "PERSON",
             licensePlate: payload.vehicleNumber,
             techPassportNo: payload.techPassport,
             ttnNo: payload.ttn,

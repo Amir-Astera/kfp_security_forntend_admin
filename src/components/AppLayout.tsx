@@ -1,12 +1,12 @@
 import { ReactNode, useState, useEffect, useMemo, useCallback } from "react";
-import { 
-  LayoutDashboard, 
-  Building2, 
-  MapPin, 
-  Shield, 
-  Users, 
-  ClipboardList, 
-  FileText, 
+import {
+  LayoutDashboard,
+  Building2,
+  MapPin,
+  Shield,
+  Users,
+  ClipboardList,
+  FileText,
   Settings,
   Menu,
   Bell,
@@ -17,7 +17,7 @@ import {
   CalendarDays,
   ClipboardCheck,
   Clock,
-  ArrowRightLeft
+  ArrowRightLeft,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import {
@@ -133,15 +133,15 @@ export function AppLayout({
 
     const branchLabel = guardData.branchName?.trim() ?? "";
     const checkpointLabel = guardData.checkpointName?.trim() ?? "";
-    const locationLabel = branchLabel && checkpointLabel
-      ? `${branchLabel} - ${checkpointLabel}`
-      : branchLabel || checkpointLabel || "—";
+    const locationLabel =
+      branchLabel && checkpointLabel
+        ? `${branchLabel} - ${checkpointLabel}`
+        : branchLabel || checkpointLabel || "—";
 
     const shiftStart = guardData.shiftStart?.trim() ?? "";
     const shiftEnd = guardData.shiftEnd?.trim() ?? "";
-    const shiftRange = shiftStart && shiftEnd
-      ? `${shiftStart}-${shiftEnd}`
-      : shiftStart || shiftEnd || "—";
+    const shiftRange =
+      shiftStart && shiftEnd ? `${shiftStart}-${shiftEnd}` : shiftStart || shiftEnd || "—";
     const shiftLabel = `Время смены (${shiftRange})`;
 
     return {
@@ -150,11 +150,13 @@ export function AppLayout({
       shiftLabel,
     };
   }, [guardData]);
-  
-  const filteredMenuItems = menuItems.filter(item => item.roles.includes(userRole));
+
+  const filteredMenuItems = menuItems.filter((item) => item.roles.includes(userRole));
 
   // Загружаем информацию о смене для охранников
   useEffect(() => {
+    console.log("[AppLayout] userRole =", userRole, "userId =", userId);
+
     if (userRole !== "guard" || !userId) {
       setGuardData(null);
       return;
@@ -164,20 +166,26 @@ export function AppLayout({
 
     const loadGuardData = async () => {
       const localGuard = db.getGuardById ? db.getGuardById(userId) : null;
+      console.log("[AppLayout] localGuard =", localGuard);
 
-      if (isMounted) {
+      if (isMounted && localGuard) {
         setGuardData(localGuard);
+        return;
       }
 
-      if (!localGuard) {
-        try {
-          const remoteGuard = await fetchGuardById(userId);
-          if (isMounted && remoteGuard) {
-            setGuardData(remoteGuard);
-          }
-        } catch (error) {
-          console.error("Не удалось загрузить данные охранника", error);
+      if (!authHeaders) {
+        console.warn("[AppLayout] Нет authHeaders, не могу загрузить охранника из API");
+        return;
+      }
+
+      try {
+        const remoteGuard = await fetchGuardById(userId, authHeaders);
+        console.log("[AppLayout] remoteGuard =", remoteGuard);
+        if (isMounted && remoteGuard) {
+          setGuardData(remoteGuard);
         }
+      } catch (error) {
+        console.error("Не удалось загрузить данные охранника", error);
       }
     };
 
@@ -186,7 +194,7 @@ export function AppLayout({
     return () => {
       isMounted = false;
     };
-  }, [userId, userRole]);
+  }, [userId, userRole, authHeaders]);
 
   // Обновляем информацию о смене из локального хранилища
   useEffect(() => {
@@ -252,7 +260,7 @@ export function AppLayout({
         console.error("Не удалось получить статус смены охранника", error);
       });
 
-    return () => {
+  return () => {
       isActive = false;
     };
   }, [authHeaders, getShiftRange, guardData, userId, userRole]);
@@ -365,9 +373,7 @@ export function AppLayout({
       } catch (error) {
         console.error("Не удалось закрыть сессии охранника", error);
         const message =
-          error instanceof Error && error.message
-            ? error.message
-            : "Не удалось закрыть смену";
+          error instanceof Error && error.message ? error.message : "Не удалось закрыть смену";
         toast.error(message);
         return;
       }
@@ -385,9 +391,7 @@ export function AppLayout({
       } catch (error) {
         console.error("Не удалось завершить смену", error);
         const message =
-          error instanceof Error && error.message
-            ? error.message
-            : "Не удалось завершить смену";
+          error instanceof Error && error.message ? error.message : "Не удалось завершить смену";
         toast.error(message);
         return;
       }
@@ -408,7 +412,7 @@ export function AppLayout({
     <div className="flex h-screen bg-background">
       {/* Sidebar - скрыт для охранников */}
       {userRole !== "guard" && (
-        <aside 
+        <aside
           className={`bg-card border-r border-border transition-all duration-300 ${
             isSidebarOpen ? "w-64" : "w-0"
           } overflow-hidden`}
@@ -427,7 +431,7 @@ export function AppLayout({
                 {filteredMenuItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = currentPage === item.id;
-                  
+
                   return (
                     <button
                       key={item.id}
@@ -477,12 +481,15 @@ export function AppLayout({
                   <div className="flex items-center gap-2">
                     <Clock className="w-5 h-5 text-blue-500" />
                     <h1 className="text-foreground">
-                      Смена активна - {guardInfo.shift} <span className="text-muted-foreground">||</span> {guardInfo.checkpoint}
+                      Смена активна - {guardInfo.shift}{" "}
+                      <span className="text-muted-foreground">||</span> {guardInfo.checkpoint}
                     </h1>
                   </div>
                 ) : userRole === "guard" && guardHeaderDetails ? (
                   <div className="flex flex-wrap items-center gap-2 text-sm sm:text-base">
-                    <span className="font-semibold text-foreground">{guardHeaderDetails.fullName}</span>
+                    <span className="font-semibold text-foreground">
+                      {guardHeaderDetails.fullName}
+                    </span>
                     <span className="text-muted-foreground">||</span>
                     <span className="text-foreground">{guardHeaderDetails.locationLabel}</span>
                     <span className="text-muted-foreground">||</span>
@@ -492,8 +499,8 @@ export function AppLayout({
                   <h1 className="text-foreground">
                     {userRole === "guard"
                       ? "Рабочее место охранника"
-                      : filteredMenuItems.find(item => item.id === currentPage)?.label || "Dashboard"
-                    }
+                      : filteredMenuItems.find((item) => item.id === currentPage)?.label ||
+                        "Dashboard"}
                   </h1>
                 )}
               </div>
@@ -513,11 +520,7 @@ export function AppLayout({
               )}
 
               {userRole === "guard" && guardData && (
-                <Button
-                  onClick={handleShiftHandover}
-                  variant="destructive"
-                  className="gap-2"
-                >
+                <Button onClick={handleShiftHandover} variant="destructive" className="gap-2">
                   <LogOut className="h-4 w-4" />
                   Закончить смену
                 </Button>
@@ -549,10 +552,7 @@ export function AppLayout({
                       <DropdownMenuSeparator />
                     </>
                   )}
-                  <DropdownMenuItem 
-                    className="text-destructive"
-                    onClick={onLogout}
-                  >
+                  <DropdownMenuItem className="text-destructive" onClick={onLogout}>
                     <LogOut className="w-4 h-4 mr-2" />
                     Выйти
                   </DropdownMenuItem>
@@ -563,9 +563,7 @@ export function AppLayout({
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-auto p-6">
-          {children}
-        </main>
+        <main className="flex-1 overflow-auto p-6">{children}</main>
       </div>
 
       {/* Диалог передачи смены для охранников */}
@@ -574,10 +572,14 @@ export function AppLayout({
           open={showHandoverDialog}
           onOpenChange={setShowHandoverDialog}
           currentGuard={guardData}
-          authTokens={authTokens?.accessToken && authTokens?.tokenType ? {
-            accessToken: authTokens.accessToken,
-            tokenType: authTokens.tokenType,
-          } : null}
+          authTokens={
+            authTokens?.accessToken && authTokens?.tokenType
+              ? {
+                  accessToken: authTokens.accessToken,
+                  tokenType: authTokens.tokenType,
+                }
+              : null
+          }
           onSuccess={handleShiftHandover}
         />
       )}

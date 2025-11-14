@@ -244,7 +244,7 @@ const mockGuards: Guard[] = [
 ];
 
 // ============================================
-// API FUNCTIONS (MOCK IMPLEMENTATION)
+// API FUNCTIONS (MOCK + REAL)
 // ============================================
 
 /**
@@ -321,8 +321,24 @@ export async function getGuards(
 
 /**
  * Получить охранника по ID
+ * - Если есть токены — идём в реальный API
+ * - Если токенов нет — работаем по мок-данным
  */
-export async function getGuardById(id: string): Promise<Guard | null> {
+export async function getGuardById(
+  id: string,
+  tokens?: Pick<AuthResponse, "accessToken" | "tokenType">
+): Promise<Guard | null> {
+  if (tokens?.accessToken && tokens?.tokenType) {
+    try {
+      const apiItem = await fetchGuardByIdFromApi(id, tokens);
+      return mapGuardFromApi(apiItem);
+    } catch (error) {
+      console.error("getGuardById: не удалось загрузить охранника из API", error);
+      return null;
+    }
+  }
+
+  // fallback к мок-данным (без авторизации)
   await new Promise((resolve) => setTimeout(resolve, 200));
   return mockGuards.find((guard) => guard.id === id) || null;
 }
@@ -508,7 +524,6 @@ export async function deleteGuard(
  */
 export async function resetGuardPassword(id: string): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 500));
-  // В реальном API здесь будет отправка нового пароля на email
 }
 
 /**
