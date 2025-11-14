@@ -35,7 +35,10 @@ import { Skeleton } from "./ui/skeleton";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import type { AuthResponse, ShiftPhotoApiItem } from "../types";
-import { buildFileUrl, fetchShiftEntrancePhotos } from "../api/shiftPhotos";
+import {
+  buildFileUrl,
+  fetchShiftEntrancePhotos,
+} from "../api/shiftPhotos";
 
 const PAGE = 0;
 const PAGE_SIZE = 50;
@@ -221,6 +224,9 @@ export function PhotoGallery({
         {
           accessToken: authTokens.accessToken,
           tokenType: authTokens.tokenType,
+        },
+        {
+          scope: userRole === "superadmin" ? "superadmin" : "agency",
         }
       );
 
@@ -244,7 +250,7 @@ export function PhotoGallery({
     } finally {
       setIsLoading(false);
     }
-  }, [authTokens, selectedDate]);
+  }, [authTokens, selectedDate, userRole]);
 
   useEffect(() => {
     loadPhotos();

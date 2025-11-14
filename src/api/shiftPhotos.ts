@@ -47,13 +47,21 @@ function buildShiftPhotoQuery(params: ShiftPhotoQueryParams): string {
   return query ? `?${query}` : "";
 }
 
+export type ShiftPhotoScope = "agency" | "superadmin";
+
 export async function fetchShiftEntrancePhotos(
   params: ShiftPhotoQueryParams,
-  tokens: Pick<AuthResponse, "accessToken" | "tokenType">
+  tokens: Pick<AuthResponse, "accessToken" | "tokenType">,
+  options?: { scope?: ShiftPhotoScope }
 ): Promise<ShiftPhotoListResponse> {
   const query = buildShiftPhotoQuery(params);
+  const scope = options?.scope ?? "agency";
+  const endpoint =
+    scope === "superadmin"
+      ? `${API_BASE_URL}/api/v1/shift-photos${query}`
+      : `${API_BASE_URL}/api/v1/shift-photos/agency/entrances${query}`;
   const response = await fetch(
-    `${API_BASE_URL}/api/v1/shift-photos/agency/entrances${query}`,
+    endpoint,
     {
       headers: {
         Authorization: `${tokens.tokenType} ${tokens.accessToken}`,
