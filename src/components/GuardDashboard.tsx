@@ -15,6 +15,7 @@ import {
   completeGuestVisit,
   createGuestVisit,
   getGuestVisits,
+  getPresentGuestVisits,
   mapGuestVisitToVisit,
 } from "../api/visits";
 import { getTodayGuardShift, type TodayGuardShiftResponse } from "../api/guardShifts";
@@ -394,18 +395,68 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
         tokenType: authTokens.tokenType,
       } as const;
 
-      const response = await getGuestVisits(tokens, { guardId, size: 200, page: 0 });
-      setVisits(response.items.map(mapGuestVisitToVisit));
+      const shouldLoadPresent = Boolean(guard?.checkpointId);
+      const historyPromise = getGuestVisits(tokens, { guardId, size: 200, page: 0 });
+      const presentPromise = shouldLoadPresent
+        ? getPresentGuestVisits(tokens, {
+            checkpointId: guard?.checkpointId ?? "",
+            size: 200,
+            page: 0,
+          })
+        : Promise.resolve(null);
+
+      const [historyResult, presentResult] = await Promise.allSettled([
+        historyPromise,
+        presentPromise,
+      ]);
+
+      const errorMessages: string[] = [];
+
+      let mappedHistory: Visit[] = [];
+      if (historyResult.status === "fulfilled") {
+        mappedHistory = historyResult.value.items.map(mapGuestVisitToVisit);
+      } else {
+        console.error("Не удалось загрузить визиты охранника", historyResult.reason);
+        const reason = historyResult.reason;
+        errorMessages.push(
+          reason instanceof Error ? reason.message : "Не удалось загрузить список визитов",
+        );
+      }
+
+      let presentVisits: Visit[] = [];
+      if (presentResult.status === "fulfilled") {
+        const response = presentResult.value;
+        if (response) {
+          presentVisits = response.items.map(mapGuestVisitToVisit);
+        }
+      } else if (shouldLoadPresent) {
+        console.error("Не удалось загрузить гостей на территории", presentResult.reason);
+        const reason = presentResult.reason;
+        errorMessages.push(
+          reason instanceof Error
+            ? reason.message
+            : "Не удалось загрузить гостей на территории",
+        );
+      }
+
+      const presentIds = new Set(presentVisits.map((visit) => visit.id));
+      const combinedVisits = [
+        ...presentVisits,
+        ...mappedHistory.filter((visit) => !presentIds.has(visit.id)),
+      ];
+
+      setVisits(combinedVisits);
+      setVisitsError(errorMessages.length > 0 ? errorMessages.join(". ") : null);
     } catch (error) {
-      console.error("Не удалось загрузить визиты охранника", error);
+      console.error("Не удалось обновить данные визитов", error);
       const message =
-        error instanceof Error ? error.message : "Не удалось загрузить список визитов";
+        error instanceof Error ? error.message : "Не удалось обновить данные визитов";
       setVisitsError(message);
       setVisits([]);
     } finally {
       setVisitsLoading(false);
     }
-  }, [authTokens, guardId]);
+  }, [authTokens, guard?.checkpointId, guardId]);
 
   useEffect(() => {
     refreshVisits();
@@ -576,24 +627,29 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
           tokenType: authTokens.tokenType,
         } as const;
 
+        const nowIso = new Date().toISOString();
+        const phoneDigits = payload.phone.replace(/\D/g, "");
+
         const response = await createGuestVisit(
           {
             guardId: guard.id,
             branchId: guard.branchId,
             checkpointId: guard.checkpointId,
             fullName: payload.fullName,
-            iin: payload.iin,
-            phone: payload.phone,
+            iin: payload.iin.trim(),
+            phone: phoneDigits || undefined,
             company: payload.company,
             visitPurpose: payload.purpose,
-            visitPlaces: payload.places,
+            visitPlaces: payload.places.length > 0 ? payload.places : undefined,
+            visitPlace: payload.places[0],
             notes: payload.notes,
-            kind: payload.hasVehicle ? "TRANSPORT" : "PERSON",
+            kind: payload.hasVehicle ? "VEHICLE" : "PERSON",
             licensePlate: payload.vehicleNumber,
             techPassportNo: payload.techPassport,
             ttnNo: payload.ttn,
             cargoType: payload.cargoType,
-            hasVehicle: payload.hasVehicle,
+            entryAt: nowIso,
+            active: true,
           },
           tokens
         );

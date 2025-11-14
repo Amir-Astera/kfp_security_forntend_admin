@@ -59,13 +59,24 @@ export interface CreateGuestVisitRequest {
   company?: string;
   visitPurpose?: string;
   visitPlaces?: string[];
+  visitPlace?: string;
   notes?: string;
-  kind?: string;
+  kind: string;
   licensePlate?: string;
   techPassportNo?: string;
   ttnNo?: string;
   cargoType?: string;
-  hasVehicle?: boolean;
+  entryAt: string;
+  exitAt?: string;
+  active: boolean;
+}
+
+export interface PresentGuestVisitsQueryParams {
+  page?: number;
+  size?: number;
+  checkpointId?: string;
+  branchId?: string;
+  guardId?: string;
 }
 
 export interface CompleteGuestVisitRequest {
@@ -187,6 +198,13 @@ export const mapGuestVisitToVisit = (item: GuestVisitApiItem): Visit => {
     item.visitPlace ?? undefined,
   ].filter((place): place is string => Boolean(place));
 
+  const normalizedKind = item.kind?.toUpperCase();
+  const hasVehicle =
+    normalizedKind === "VEHICLE" ||
+    normalizedKind === "TRANSPORT" ||
+    normalizedKind === "CAR" ||
+    Boolean(item.licensePlate);
+
   return {
     id: item.id,
     entryTime,
@@ -198,7 +216,7 @@ export const mapGuestVisitToVisit = (item: GuestVisitApiItem): Visit => {
     phone: item.phone ?? "",
     purpose: item.visitPurpose ?? "",
     places,
-    hasVehicle: Boolean(item.licensePlate),
+    hasVehicle,
     vehicleNumber: item.licensePlate ?? undefined,
     techPassport: item.techPassportNo ?? undefined,
     ttn: item.ttnNo ?? undefined,
@@ -232,6 +250,24 @@ export async function getGuestVisits(
   });
 
   await handleErrorResponse(response, "Не удалось загрузить список визитов");
+  return response.json();
+}
+
+export async function getPresentGuestVisits(
+  tokens: Pick<AuthResponse, "accessToken" | "tokenType">,
+  params: PresentGuestVisitsQueryParams = {}
+): Promise<GuestVisitsResponse> {
+  const { page = 0, size = 25, ...rest } = params;
+  const queryString = buildQueryString({ page, size, ...rest });
+  const response = await fetch(`${API_BASE_URL}/api/v1/guests/present${queryString}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(tokens),
+    },
+  });
+
+  await handleErrorResponse(response, "Не удалось загрузить список гостей на территории");
   return response.json();
 }
 
