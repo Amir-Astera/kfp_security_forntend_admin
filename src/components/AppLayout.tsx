@@ -1,4 +1,4 @@
-import { ReactNode, useState, useEffect } from "react";
+import { ReactNode, useState, useEffect, useMemo } from "react";
 import { 
   LayoutDashboard, 
   Building2, 
@@ -78,6 +78,31 @@ export function AppLayout({
   const [guardInfo, setGuardInfo] = useState<{ shift: string; checkpoint: string } | null>(null);
   const [showHandoverDialog, setShowHandoverDialog] = useState(false);
   const [guardData, setGuardData] = useState<Guard | null>(null);
+
+  const guardHeaderDetails = useMemo(() => {
+    if (!guardData) {
+      return null;
+    }
+
+    const branchLabel = guardData.branchName?.trim() ?? "";
+    const checkpointLabel = guardData.checkpointName?.trim() ?? "";
+    const locationLabel = branchLabel && checkpointLabel
+      ? `${branchLabel} - ${checkpointLabel}`
+      : branchLabel || checkpointLabel || "—";
+
+    const shiftStart = guardData.shiftStart?.trim() ?? "";
+    const shiftEnd = guardData.shiftEnd?.trim() ?? "";
+    const shiftRange = shiftStart && shiftEnd
+      ? `${shiftStart}-${shiftEnd}`
+      : shiftStart || shiftEnd || "—";
+    const shiftLabel = `Время смены (${shiftRange})`;
+
+    return {
+      fullName: guardData.fullName || "—",
+      locationLabel,
+      shiftLabel,
+    };
+  }, [guardData]);
   
   const filteredMenuItems = menuItems.filter(item => item.roles.includes(userRole));
 
@@ -187,9 +212,17 @@ export function AppLayout({
                       Смена активна - {guardInfo.shift} <span className="text-muted-foreground">||</span> {guardInfo.checkpoint}
                     </h1>
                   </div>
+                ) : userRole === "guard" && guardHeaderDetails ? (
+                  <div className="flex flex-wrap items-center gap-2 text-sm sm:text-base">
+                    <span className="font-semibold text-foreground">{guardHeaderDetails.fullName}</span>
+                    <span className="text-muted-foreground">||</span>
+                    <span className="text-foreground">{guardHeaderDetails.locationLabel}</span>
+                    <span className="text-muted-foreground">||</span>
+                    <span className="text-foreground">{guardHeaderDetails.shiftLabel}</span>
+                  </div>
                 ) : (
                   <h1 className="text-foreground">
-                    {userRole === "guard" 
+                    {userRole === "guard"
                       ? "Рабочее место охранника"
                       : filteredMenuItems.find(item => item.id === currentPage)?.label || "Dashboard"
                     }
@@ -208,6 +241,17 @@ export function AppLayout({
                 >
                   <ArrowRightLeft className="h-4 w-4" />
                   Передать смену
+                </Button>
+              )}
+
+              {userRole === "guard" && guardData && (
+                <Button
+                  onClick={handleShiftHandover}
+                  variant="destructive"
+                  className="gap-2"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Закончить смену
                 </Button>
               )}
 

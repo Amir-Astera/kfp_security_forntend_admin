@@ -49,6 +49,12 @@ export function StartWorkDialog({
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const allowCloseRef = useRef(false);
+
+  const requestClose = useCallback(() => {
+    allowCloseRef.current = true;
+    onOpenChange(false);
+  }, [onOpenChange]);
 
   const startCamera = useCallback(async () => {
     setCameraError(null);
@@ -165,7 +171,7 @@ export function StartWorkDialog({
       toast.success("Смена успешно начата!");
 
       setTimeout(() => {
-        onOpenChange(false);
+        requestClose();
         onConfirm();
       }, 500);
     } catch (error) {
@@ -185,7 +191,7 @@ export function StartWorkDialog({
     setPhoto(null);
     setStep("info");
     setCameraError(null);
-    onOpenChange(false);
+    requestClose();
     onCancel();
   };
 
@@ -223,9 +229,35 @@ export function StartWorkDialog({
     year: "numeric",
   });
 
+  useEffect(() => {
+    if (open) {
+      allowCloseRef.current = false;
+    }
+  }, [open]);
+
+  const handleDialogOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (nextOpen) {
+        allowCloseRef.current = false;
+        onOpenChange(true);
+        return;
+      }
+
+      if (allowCloseRef.current) {
+        allowCloseRef.current = false;
+        onOpenChange(false);
+      }
+    },
+    [onOpenChange]
+  );
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
+      <DialogContent
+        className="max-w-2xl"
+        onInteractOutside={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => event.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ClipboardCheck className="h-5 w-5" />
