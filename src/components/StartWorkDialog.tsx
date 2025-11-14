@@ -203,7 +203,7 @@ export function StartWorkDialog({
       const deviceLabel =
         typeof navigator !== "undefined" ? navigator.userAgent : "unknown-device";
 
-      const deviceKind = "BROWSER";
+      const deviceKind = "WEB";
       const deviceFp = getDeviceFingerprint();
 
       const { sessionId } = await openGuardSession(
