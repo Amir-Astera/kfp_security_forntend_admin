@@ -161,19 +161,24 @@ function mapShiftPhoto(item: ShiftPhotoApiItem): GalleryPhoto {
 }
 
 function getInitials(name: string): string {
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("")
-    .slice(0, 2) || "—";
+  return (
+    name
+      .split(" ")
+      .filter(Boolean)
+      .map((part) => part[0]?.toUpperCase() ?? "")
+      .join("")
+      .slice(0, 2) || "—"
+  );
 }
 
 function includesValue(values: Array<string | undefined>, target: string): boolean {
   return values.some((value) => value && value === target);
 }
 
-export function PhotoGallery({ authTokens, userRole = "superadmin" }: PhotoGalleryProps) {
+export function PhotoGallery({
+  authTokens,
+  userRole = "superadmin",
+}: PhotoGalleryProps) {
   const [photos, setPhotos] = useState<GalleryPhoto[]>([]);
   const [total, setTotal] = useState(0);
   const [selectedPhoto, setSelectedPhoto] = useState<GalleryPhoto | null>(null);
@@ -185,7 +190,9 @@ export function PhotoGallery({ authTokens, userRole = "superadmin" }: PhotoGalle
   const [showFilters, setShowFilters] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [brokenPreviews, setBrokenPreviews] = useState<Record<string, boolean>>({});
+  const [brokenPreviews, setBrokenPreviews] = useState<Record<string, boolean>>(
+    {}
+  );
 
   const dateRange = useMemo(() => getDateRange(selectedDate), [selectedDate]);
 
@@ -221,9 +228,7 @@ export function PhotoGallery({ authTokens, userRole = "superadmin" }: PhotoGalle
         ? response.items.map(mapShiftPhoto)
         : [];
 
-      mapped.sort(
-        (a, b) => b.timestamp.getTime() - a.timestamp.getTime()
-      );
+      mapped.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 
       setPhotos(mapped);
       setTotal(response.total ?? mapped.length);
@@ -260,7 +265,10 @@ export function PhotoGallery({ authTokens, userRole = "superadmin" }: PhotoGalle
       }
     });
 
-    return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
+    return Array.from(map.entries()).map(([value, label]) => ({
+      value,
+      label,
+    }));
   }, [photos]);
 
   const branches = useMemo<FilterOption[]>(() => {
@@ -274,7 +282,10 @@ export function PhotoGallery({ authTokens, userRole = "superadmin" }: PhotoGalle
       }
     });
 
-    return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
+    return Array.from(map.entries()).map(([value, label]) => ({
+      value,
+      label,
+    }));
   }, [photos]);
 
   const filteredPhotos = useMemo(() => {
@@ -285,29 +296,18 @@ export function PhotoGallery({ authTokens, userRole = "superadmin" }: PhotoGalle
     return photos.filter((photo) => {
       const matchesSearch =
         query === "" ||
-        [
-          photo.guardName,
-          photo.checkpointName,
-          photo.branchName,
-          photo.agencyName,
-        ]
+        [photo.guardName, photo.checkpointName, photo.branchName, photo.agencyName]
           .filter(Boolean)
           .some((field) => field!.toLowerCase().includes(query));
 
       const matchesAgency =
         userRole === "agency" ||
         selectedAgency === "all" ||
-        includesValue(
-          [photo.agencyId, photo.agencyName],
-          selectedAgency
-        );
+        includesValue([photo.agencyId, photo.agencyName], selectedAgency);
 
       const matchesBranch =
         selectedBranch === "all" ||
-        includesValue(
-          [photo.branchId, photo.branchName],
-          selectedBranch
-        );
+        includesValue([photo.branchId, photo.branchName], selectedBranch);
 
       const matchesShift =
         selectedShift === "all" || photo.shiftType === selectedShift;
@@ -323,7 +323,15 @@ export function PhotoGallery({ authTokens, userRole = "superadmin" }: PhotoGalle
         matchesDate
       );
     });
-  }, [photos, searchQuery, selectedAgency, selectedBranch, selectedShift, dateRange, userRole]);
+  }, [
+    photos,
+    searchQuery,
+    selectedAgency,
+    selectedBranch,
+    selectedShift,
+    dateRange,
+    userRole,
+  ]);
 
   const activeFiltersCount = [
     searchQuery.trim() !== "",
@@ -432,8 +440,12 @@ export function PhotoGallery({ authTokens, userRole = "superadmin" }: PhotoGalle
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="day">{DATE_FILTER_LABELS.day}</SelectItem>
-                  <SelectItem value="week">{DATE_FILTER_LABELS.week}</SelectItem>
-                  <SelectItem value="month">{DATE_FILTER_LABELS.month}</SelectItem>
+                  <SelectItem value="week">
+                    {DATE_FILTER_LABELS.week}
+                  </SelectItem>
+                  <SelectItem value="month">
+                    {DATE_FILTER_LABELS.month}
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -496,8 +508,8 @@ export function PhotoGallery({ authTokens, userRole = "superadmin" }: PhotoGalle
               </Select>
             </div>
           </div>
-        </div>
-      </div>
+        )}
+      </Card>
 
       {error && (
         <Card className="p-4 border-destructive/30 bg-destructive/10 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -537,7 +549,8 @@ export function PhotoGallery({ authTokens, userRole = "superadmin" }: PhotoGalle
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredPhotos.map((photo) => {
-            const previewUrl = buildFileUrl(photo.previewUrl) || buildFileUrl(photo.fileUrl);
+            const previewUrl =
+              buildFileUrl(photo.previewUrl) || buildFileUrl(photo.fileUrl);
             const showPreview = previewUrl && !brokenPreviews[photo.id];
 
             return (
@@ -560,7 +573,7 @@ export function PhotoGallery({ authTokens, userRole = "superadmin" }: PhotoGalle
                     </div>
                   )}
                   <div className="absolute top-2 left-2">
-                    <Badge variant="secondary" className="bg-background/80 backdrop-blur text-foreground">
+                    <Badge className="bg-background/80 backdrop-blur text-foreground" variant="secondary">
                       {photo.kind === "START" ? "Начало смены" : "Завершение"}
                     </Badge>
                   </div>
@@ -568,7 +581,9 @@ export function PhotoGallery({ authTokens, userRole = "superadmin" }: PhotoGalle
                 <div className="p-3 space-y-2">
                   <div className="flex items-center gap-2">
                     <User className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                    <span className="text-foreground truncate">{photo.guardName}</span>
+                    <span className="text-foreground truncate">
+                      {photo.guardName}
+                    </span>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Clock className="w-3.5 h-3.5 flex-shrink-0" />
@@ -662,9 +677,13 @@ export function PhotoGallery({ authTokens, userRole = "superadmin" }: PhotoGalle
                       <CalendarIcon className="h-4 w-4 text-primary" />
                       <span className="text-foreground">
                         {selectedPhoto.takenAtDate
-                          ? format(selectedPhoto.takenAtDate, "dd MMMM yyyy, HH:mm", {
-                              locale: ru,
-                            })
+                          ? format(
+                              selectedPhoto.takenAtDate,
+                              "dd MMMM yyyy, HH:mm",
+                              {
+                                locale: ru,
+                              }
+                            )
                           : "Дата не указана"}
                       </span>
                     </div>
@@ -708,24 +727,39 @@ export function PhotoGallery({ authTokens, userRole = "superadmin" }: PhotoGalle
 
                   <div className="space-y-2 pt-4 border-t">
                     <p className="text-sm text-muted-foreground">
-                      ID смены: <span className="text-foreground">{selectedPhoto.shiftId}</span>
+                      ID смены:{" "}
+                      <span className="text-foreground">
+                        {selectedPhoto.shiftId}
+                      </span>
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      ID охранника: <span className="text-foreground">{selectedPhoto.guardId}</span>
+                      ID охранника:{" "}
+                      <span className="text-foreground">
+                        {selectedPhoto.guardId}
+                      </span>
                     </p>
                     {selectedPhoto.fileId && (
                       <p className="text-sm text-muted-foreground">
-                        ID файла: <span className="text-foreground">{selectedPhoto.fileId}</span>
+                        ID файла:{" "}
+                        <span className="text-foreground">
+                          {selectedPhoto.fileId}
+                        </span>
                       </p>
                     )}
                     {selectedPhoto.fileFormat && (
                       <p className="text-sm text-muted-foreground">
-                        Формат файла: <span className="text-foreground">{selectedPhoto.fileFormat}</span>
+                        Формат файла:{" "}
+                        <span className="text-foreground">
+                          {selectedPhoto.fileFormat}
+                        </span>
                       </p>
                     )}
                     {selectedPhoto.takenAtRaw && (
                       <p className="text-sm text-muted-foreground">
-                        Зафиксировано: <span className="text-foreground">{selectedPhoto.takenAtRaw}</span>
+                        Зафиксировано:{" "}
+                        <span className="text-foreground">
+                          {selectedPhoto.takenAtRaw}
+                        </span>
                       </p>
                     )}
                   </div>
