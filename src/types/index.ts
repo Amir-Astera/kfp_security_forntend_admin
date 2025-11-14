@@ -550,3 +550,38 @@ export interface CreateGuardRequest {
 export interface UpdateGuardRequest extends Partial<CreateGuardRequest> {
   status?: "active" | "inactive" | "vacation" | "sick";
 }
+
+// ============================================
+// ФОТО СМЕН
+// ============================================
+
+export interface ShiftPhotoApiItem {
+  id: string;
+  shiftId: string;
+  guardId: string;
+  guardFullName?: string;
+  guardName?: string;
+  agencyId?: string;
+  agencyName?: string;
+  branchId?: string;
+  branchName?: string;
+  checkpointId?: string;
+  checkpointName?: string;
+  kind: "START" | "END";
+  shiftType?: string | null;
+  takenAt?: string | null;
+  fileId?: string;
+  fileDirectory?: string;
+  fileFormat?: string;
+  fileUrl?: string;
+  previewUrl?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ShiftPhotoListResponse {
+  items: ShiftPhotoApiItem[];
+  page: number;
+  size: number;
+  total: number;
+}

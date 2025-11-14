@@ -5,67 +5,85 @@ const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
 export interface ShiftPhotoQueryParams {
   page?: number;
   size?: number;
-  guardId?: string;
-  branchId?: string;
-  checkpointId?: string;
-  kind?: string;
   from?: string;
   to?: string;
+  guardId?: string;
+  branchId?: string;
+  agencyId?: string;
 }
 
-const buildQueryString = (params: Record<string, unknown>): string => {
+function buildShiftPhotoQuery(params: ShiftPhotoQueryParams): string {
   const searchParams = new URLSearchParams();
 
-  Object.entries(params).forEach(([key, value]) => {
-    if (value === undefined || value === null || value === "") {
-      return;
-    }
+  if (typeof params.page === "number") {
+    searchParams.set("page", String(params.page));
+  }
 
-    searchParams.append(key, String(value));
-  });
+  if (typeof params.size === "number") {
+    searchParams.set("size", String(params.size));
+  }
+
+  if (params.from) {
+    searchParams.set("from", params.from);
+  }
+
+  if (params.to) {
+    searchParams.set("to", params.to);
+  }
+
+  if (params.guardId) {
+    searchParams.set("guardId", params.guardId);
+  }
+
+  if (params.branchId) {
+    searchParams.set("branchId", params.branchId);
+  }
+
+  if (params.agencyId) {
+    searchParams.set("agencyId", params.agencyId);
+  }
 
   const query = searchParams.toString();
   return query ? `?${query}` : "";
-};
+}
 
-const getAuthHeaders = (tokens: Pick<AuthResponse, "accessToken" | "tokenType">) => ({
-  Authorization: `${tokens.tokenType} ${tokens.accessToken}`,
-});
-
-const handleErrorResponse = async (response: Response, fallbackMessage: string) => {
-  if (response.ok) {
-    return;
-  }
-
-  let message = fallbackMessage;
-
-  try {
-    const body = await response.json();
-    if (typeof body?.message === "string" && body.message.trim()) {
-      message = body.message;
-    }
-  } catch (error) {
-    console.error("Не удалось обработать ответ API фото смен", error);
-  }
-
-  throw new Error(message);
-};
-
-export async function fetchShiftPhotos(
+export async function fetchShiftEntrancePhotos(
   params: ShiftPhotoQueryParams,
   tokens: Pick<AuthResponse, "accessToken" | "tokenType">
 ): Promise<ShiftPhotoListResponse> {
-  const { page = 0, size = 50, ...rest } = params ?? {};
-  const queryString = buildQueryString({ page, size, ...rest });
+  const query = buildShiftPhotoQuery(params);
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/shift-photos/agency/entrances${query}`,
+    {
+      headers: {
+        Authorization: `${tokens.tokenType} ${tokens.accessToken}`,
+      },
+    }
+  );
 
-  const response = await fetch(`${API_BASE_URL}/api/v1/shift-photos${queryString}`, {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-      ...getAuthHeaders(tokens),
-    },
-  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      errorText ||
+        `Не удалось загрузить фотографии смен (${response.status} ${response.statusText})`
+    );
+  }
 
-  await handleErrorResponse(response, "Не удалось загрузить фото вступления на смену");
   return response.json();
+}
+
+export function buildFileUrl(path?: string | null): string | null {
+  if (!path) {
+    return null;
+  }
+
+  if (/^https?:\/\//i.test(path)) {
+    return path;
+  }
+
+  if (path.startsWith("/")) {
+    return `${API_BASE_URL}${path}`;
+  }
+
+  return `${API_BASE_URL}/${path}`;
 }

@@ -228,7 +228,7 @@ export default function App() {
         case "schedule":
           return <ScheduleManager authTokens={authTokens} />;
         case "photo-gallery":
-          return <PhotoGallery authTokens={authTokens} />;
+          return <PhotoGallery authTokens={authTokens} userRole={userRole} />;
         case "reports":
           return <ReportsPage />;
         case "settings":
@@ -254,7 +254,7 @@ export default function App() {
         case "schedule":
           return <ScheduleManager authTokens={authTokens} agencyId={userId} />;
         case "photo-gallery":
-          return <PhotoGallery authTokens={authTokens} />;
+          return <PhotoGallery authTokens={authTokens} userRole={userRole} />;
         case "reports":
           return <ReportsPage />;
         default:
