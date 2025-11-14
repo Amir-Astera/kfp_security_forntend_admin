@@ -41,40 +41,43 @@ export function GuardExitRegistration({ visits, onCompleteVisit, isSubmitting }:
 
   const onSiteVisits = useMemo(() => visits.filter((v) => v.status === "on-site"), [visits]);
 
-  // Фильтрация по типу и поисковому запросу
   const filteredVisits = useMemo(() => {
-    let filtered = onSiteVisits;
+    const normalizedQuery = searchQuery.toLowerCase().trim();
 
-    // Фильтр по типу (гость/транспорт)
-    if (isTransportMode) {
-      filtered = filtered.filter((v) => v.hasVehicle);
-    } else {
-      filtered = filtered.filter((v) => !v.hasVehicle);
-    }
+    const filtered = onSiteVisits.filter((visit) => {
+      const visitKind = (visit.kind ?? (visit.hasVehicle ? "TRANSPORT" : "PERSON")).toUpperCase();
 
-    // Поиск
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase().trim();
-      filtered = filtered.filter((v) => {
-        if (isTransportMode) {
-          // Для транспорта: поиск по гос. номеру, ТТН
-          return (
-            v.vehicleNumber?.toLowerCase().includes(query) ||
-            v.ttn?.toLowerCase().includes(query) ||
-            v.fullName.toLowerCase().includes(query)
-          );
-        } else {
-          // Для гостей: поиск по ФИО, ИИН
-          return (
-            v.fullName.toLowerCase().includes(query) ||
-            v.iin.includes(query) ||
-            v.company.toLowerCase().includes(query)
-          );
+      if (isTransportMode) {
+        if (visitKind !== "TRANSPORT") {
+          return false;
         }
-      });
-    }
+      } else if (visitKind === "TRANSPORT") {
+        return false;
+      }
 
-    return filtered;
+      if (!normalizedQuery) {
+        return true;
+      }
+
+      if (visitKind === "TRANSPORT") {
+        return (
+          visit.vehicleNumber?.toLowerCase().includes(normalizedQuery) ||
+          visit.ttn?.toLowerCase().includes(normalizedQuery) ||
+          visit.fullName.toLowerCase().includes(normalizedQuery)
+        );
+      }
+
+      return (
+        visit.fullName.toLowerCase().includes(normalizedQuery) ||
+        visit.iin.includes(normalizedQuery) ||
+        visit.company.toLowerCase().includes(normalizedQuery)
+      );
+    });
+
+    // Предотвращаем дублирование записей при переключении фильтра
+    const uniqueVisits = Array.from(new Map(filtered.map((item) => [item.id, item])).values());
+
+    return uniqueVisits;
   }, [onSiteVisits, isTransportMode, searchQuery]);
 
   const handleExit = async (visit: Visit) => {

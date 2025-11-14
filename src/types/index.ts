@@ -337,11 +337,14 @@ export interface GuardGuestKindItem {
 // ============================================
 export interface Visit {
   id: string;
-  
+
   // Временные данные
   entryTime: string; // DD.MM.YYYY HH:MM
   exitTime?: string; // DD.MM.YYYY HH:MM или null
   timeOnSite?: string; // Время на территории (расчетное)
+
+  // Тип визита
+  kind?: string;
   
   // Данные гостя
   fullName: string;

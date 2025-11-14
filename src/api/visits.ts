@@ -200,6 +200,7 @@ export const mapGuestVisitToVisit = (item: GuestVisitApiItem): Visit => {
     normalizedKind === "TRANSPORT" ||
     normalizedKind === "CAR" ||
     Boolean(item.licensePlate);
+  const visitKind = normalizedKind ?? (hasVehicle ? "TRANSPORT" : "PERSON");
 
   const normalizedStatus = item.status?.toUpperCase();
   const isOnTerritory =
@@ -218,6 +219,7 @@ export const mapGuestVisitToVisit = (item: GuestVisitApiItem): Visit => {
     iin: item.iin ?? "",
     company: item.company ?? "",
     phone: item.phone ?? "",
+    kind: visitKind,
     purpose: item.visitPurpose ?? "",
     places,
     hasVehicle,
