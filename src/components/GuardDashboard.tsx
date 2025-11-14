@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
@@ -12,7 +12,7 @@ import { fetchGuardByIdFromApi, mapGuardFromApi } from "../api/guards";
 import { getBranchById } from "../api/branches";
 import { getCheckpointById } from "../api/checkpoints";
 import {
-  completeGuestVisit,
+  closeGuestVisit,
   createGuestVisit,
   getGuestVisits,
   getPresentGuestVisits,
@@ -30,6 +30,9 @@ import type {
 } from "../types";
 import { toast } from "sonner@2.0.3";
 
+const VISITS_REFRESH_INTERVAL_MS = 15_000;
+const CARDS_REFRESH_INTERVAL_MS = 30_000;
+
 interface GuardDashboardProps {
   guardId: string;
   guardName: string;
@@ -38,6 +41,7 @@ interface GuardDashboardProps {
 }
 
 export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: GuardDashboardProps) {
+  const isMountedRef = useRef(true);
   const [activeTab, setActiveTab] = useState("entry");
   const [workStarted, setWorkStarted] = useState(false);
   const [showStartDialog, setShowStartDialog] = useState(false);
@@ -57,6 +61,13 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
   const [todayShift, setTodayShift] = useState<TodayGuardShiftResponse | null>(null);
   const [shiftLoading, setShiftLoading] = useState(false);
   const [shiftError, setShiftError] = useState<string | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const authHeaders = useMemo(() => {
     if (!authTokens?.accessToken || !authTokens?.tokenType) {
@@ -381,8 +392,14 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
 
 
   const refreshVisits = useCallback(async () => {
+    if (!isMountedRef.current) {
+      return;
+    }
+
     if (!authTokens?.accessToken || !authTokens?.tokenType || !guardId) {
       setVisits([]);
+      setVisitsLoading(false);
+      setVisitsError(null);
       return;
     }
 
@@ -400,7 +417,7 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
       const presentPromise = shouldLoadPresent
         ? getPresentGuestVisits(tokens, {
             checkpointId: guard?.checkpointId ?? "",
-            size: 200,
+            size: 20,
             page: 0,
           })
         : Promise.resolve(null);
@@ -409,6 +426,10 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
         historyPromise,
         presentPromise,
       ]);
+
+      if (!isMountedRef.current) {
+        return;
+      }
 
       const errorMessages: string[] = [];
 
@@ -451,16 +472,81 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
       console.error("Не удалось обновить данные визитов", error);
       const message =
         error instanceof Error ? error.message : "Не удалось обновить данные визитов";
+      if (!isMountedRef.current) {
+        return;
+      }
       setVisitsError(message);
       setVisits([]);
     } finally {
+      if (!isMountedRef.current) {
+        return;
+      }
       setVisitsLoading(false);
     }
   }, [authTokens, guard?.checkpointId, guardId]);
 
+  const refreshCards = useCallback(async () => {
+    if (!isMountedRef.current) {
+      return;
+    }
+
+    if (!authTokens?.accessToken || !authTokens?.tokenType) {
+      setCardsData(null);
+      setCardsError(null);
+      setCardsLoading(false);
+      return;
+    }
+
+    setCardsLoading(true);
+    setCardsError(null);
+
+    try {
+      const data = await fetchGuardDashboardCards(authTokens);
+      if (!isMountedRef.current) {
+        return;
+      }
+      setCardsData(data);
+    } catch (error) {
+      console.error("Не удалось загрузить карточки охранника", error);
+      if (!isMountedRef.current) {
+        return;
+      }
+      setCardsError(error instanceof Error ? error.message : "Не удалось загрузить данные");
+      setCardsData(null);
+    } finally {
+      if (!isMountedRef.current) {
+        return;
+      }
+      setCardsLoading(false);
+    }
+  }, [authTokens]);
+
   useEffect(() => {
     refreshVisits();
   }, [refreshVisits]);
+
+  useEffect(() => {
+    refreshCards();
+  }, [refreshCards]);
+
+  useEffect(() => {
+    if (!authTokens?.accessToken || !authTokens?.tokenType) {
+      return;
+    }
+
+    const visitsIntervalId = window.setInterval(() => {
+      refreshVisits();
+    }, VISITS_REFRESH_INTERVAL_MS);
+
+    const cardsIntervalId = window.setInterval(() => {
+      refreshCards();
+    }, CARDS_REFRESH_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(visitsIntervalId);
+      window.clearInterval(cardsIntervalId);
+    };
+  }, [authTokens, refreshCards, refreshVisits]);
 
   const parseDateString = useCallback((value?: string) => {
     if (!value) {
@@ -518,39 +604,6 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
   }, [parseDateString, visits]);
 
   const displayedCards = cardsData ?? fallbackCards;
-
-  useEffect(() => {
-    if (!authTokens?.accessToken || !authTokens?.tokenType) {
-      setCardsData(null);
-      setCardsError(null);
-      setCardsLoading(false);
-      return;
-    }
-
-    let isActive = true;
-    setCardsLoading(true);
-    setCardsError(null);
-
-    fetchGuardDashboardCards(authTokens)
-      .then((data) => {
-        if (!isActive) return;
-        setCardsData(data);
-      })
-      .catch((error) => {
-        console.error("Не удалось загрузить карточки охранника", error);
-        if (!isActive) return;
-        setCardsError(error instanceof Error ? error.message : "Не удалось загрузить данные");
-        setCardsData(null);
-      })
-      .finally(() => {
-        if (!isActive) return;
-        setCardsLoading(false);
-      });
-
-    return () => {
-      isActive = false;
-    };
-  }, [authTokens]);
 
   const handleStartWork = useCallback(
     ({ shiftId, startedAt }: { shiftId: string; startedAt?: string }) => {
@@ -656,12 +709,13 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
 
         const mappedVisit = mapGuestVisitToVisit(response);
         setVisits((prev) => [mappedVisit, ...prev]);
+        void refreshCards();
         return mappedVisit;
       } finally {
         setIsCreatingVisit(false);
       }
     },
-    [authTokens, guard]
+    [authTokens, guard, refreshCards]
   );
 
   const handleVisitCompleted = useCallback(
@@ -678,24 +732,19 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
           tokenType: authTokens.tokenType,
         } as const;
 
-        const response = await completeGuestVisit(
-          visit.id,
-          {
-            exitAt: new Date().toISOString(),
-          },
-          tokens
-        );
+        const response = await closeGuestVisit(visit.id, tokens);
 
         const updatedVisit = mapGuestVisitToVisit(response);
         setVisits((prev) =>
           prev.map((item) => (item.id === updatedVisit.id ? updatedVisit : item))
         );
+        void refreshCards();
         return updatedVisit;
       } finally {
         setIsCompletingVisit(false);
       }
     },
-    [authTokens]
+    [authTokens, refreshCards]
   );
 
   if (loadingGuard) {

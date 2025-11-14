@@ -28,6 +28,7 @@ export interface GuestVisitApiItem {
   entryAt?: string;
   exitAt?: string;
   active?: boolean;
+  status?: string;
   version?: number;
   createdAt?: string;
   updatedAt?: string;
@@ -77,11 +78,6 @@ export interface PresentGuestVisitsQueryParams {
   checkpointId?: string;
   branchId?: string;
   guardId?: string;
-}
-
-export interface CompleteGuestVisitRequest {
-  exitAt?: string;
-  notes?: string;
 }
 
 const buildQueryString = (params: Record<string, unknown>): string => {
@@ -205,6 +201,14 @@ export const mapGuestVisitToVisit = (item: GuestVisitApiItem): Visit => {
     normalizedKind === "CAR" ||
     Boolean(item.licensePlate);
 
+  const normalizedStatus = item.status?.toUpperCase();
+  const isOnTerritory =
+    item.active === true ||
+    normalizedStatus === "ON_TERRITORY" ||
+    normalizedStatus === "ON_SITE" ||
+    normalizedStatus === "PRESENT" ||
+    normalizedStatus === "ACTIVE";
+
   return {
     id: item.id,
     entryTime,
@@ -229,7 +233,7 @@ export const mapGuestVisitToVisit = (item: GuestVisitApiItem): Visit => {
     guardName: item.guardName ?? "",
     agencyId: item.agencyId ?? "",
     agencyName: item.agencyName ?? "",
-    status: item.active ? "on-site" : "left",
+    status: isOnTerritory ? "on-site" : "left",
     createdAt,
     updatedAt,
   };
@@ -257,15 +261,19 @@ export async function getPresentGuestVisits(
   tokens: Pick<AuthResponse, "accessToken" | "tokenType">,
   params: PresentGuestVisitsQueryParams = {}
 ): Promise<GuestVisitsResponse> {
-  const { page = 0, size = 25, ...rest } = params;
-  const queryString = buildQueryString({ page, size, ...rest });
-  const response = await fetch(`${API_BASE_URL}/api/v1/guests/present${queryString}`, {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-      ...getAuthHeaders(tokens),
-    },
-  });
+  const { page = 0, size = 20, ...rest } = params;
+  const { checkpointId, ...filters } = rest;
+  const queryString = buildQueryString({ checkpointId, page, size, ...filters });
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/dashboard/guard/present${queryString}`,
+    {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeaders(tokens),
+      },
+    }
+  );
 
   await handleErrorResponse(response, "Не удалось загрузить список гостей на территории");
   return response.json();
@@ -288,21 +296,19 @@ export async function createGuestVisit(
   return response.json();
 }
 
-export async function completeGuestVisit(
+export async function closeGuestVisit(
   visitId: string,
-  request: CompleteGuestVisitRequest,
   tokens: Pick<AuthResponse, "accessToken" | "tokenType">
 ): Promise<GuestVisitApiItem> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/guests/${visitId}/complete`, {
+  const response = await fetch(`${API_BASE_URL}/api/v1/guests/${visitId}/close`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...getAuthHeaders(tokens),
     },
-    body: JSON.stringify(request),
   });
 
-  await handleGuestVisitError(response, "Не удалось завершить визит");
+  await handleGuestVisitError(response, "Не удалось зарегистрировать выезд");
   return response.json();
 }
 
