@@ -46,7 +46,6 @@ class DatabaseService {
   async initialize(): Promise<void> {
     try {
       // Загружаем sql.js динамически
-      console.log('⏳ Загрузка sql.js...');
       const initSqlJs = await loadSqlJs();
       
       // Инициализируем sql.js
@@ -54,7 +53,6 @@ class DatabaseService {
         locateFile: (file: string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
       });
       
-      console.log('✅ sql.js загружен');
 
       // Пытаемся загрузить существующую БД из LocalStorage
       const savedDb = localStorage.getItem(DB_KEY);
@@ -64,7 +62,6 @@ class DatabaseService {
           JSON.parse(savedDb)
         );
         this.db = new this.SQL.Database(binaryArray);
-        console.log('✅ База данных загружена из LocalStorage');
         
         // Выполняем миграции для существующей БД
         await this.runMigrations();
@@ -74,7 +71,6 @@ class DatabaseService {
         await this.createSchema();
         await this.seedData();
         this.saveToLocalStorage();
-        console.log('✅ База данных создана и заполнена тестовыми данными');
       }
     } catch (error) {
       console.error('❌ Ошибка инициализации БД:', error);
@@ -94,7 +90,6 @@ class DatabaseService {
       if (result.length > 0) {
         const columns = result[0].values.map((row: any) => row[1]);
         if (!columns.includes('password')) {
-          console.log('⏳ Добавление поля password в таблицу guards...');
           
           // Добавляем колонку
           this.db.run("ALTER TABLE guards ADD COLUMN password TEXT");
@@ -106,7 +101,6 @@ class DatabaseService {
           this.db.run("UPDATE guards SET password = 'guard123' WHERE login_email = 'guard@kfp.kz'");
           
           this.saveToLocalStorage();
-          console.log('✅ Миграция поля password выполнена');
         }
       }
     } catch (error) {
@@ -243,7 +237,6 @@ class DatabaseService {
       )
     `);
 
-    console.log('✅ Схема базы данных создана');
   }
 
   /**
@@ -643,7 +636,6 @@ class DatabaseService {
       );
     }
 
-    console.log('✅ Тестовые данные загружены');
   }
 
   /**
@@ -668,7 +660,6 @@ class DatabaseService {
       const data = this.db.export();
       const buffer = Array.from(data);
       localStorage.setItem(DB_KEY, JSON.stringify(buffer));
-      console.log('💾 База данных сохранена в LocalStorage');
     } catch (error) {
       console.error('❌ Ошибка сохранения БД:', error);
     }
@@ -708,7 +699,6 @@ class DatabaseService {
       
       this.db = new this.SQL.Database(data);
       this.saveToLocalStorage();
-      console.log('✅ База данных импортирована');
     } catch (error) {
       console.error('❌ Ошибка импорта БД:', error);
       throw error;
@@ -724,7 +714,6 @@ class DatabaseService {
       this.db.close();
       this.db = null;
     }
-    console.log('🗑️ База данных очищена');
   }
 
   // ============================================
