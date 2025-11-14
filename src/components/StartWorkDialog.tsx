@@ -8,8 +8,18 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { Button } from "./ui/button";
-import { ClipboardCheck, MapPin, Clock, Calendar, Camera, RotateCw, X, CheckCircle, AlertCircle } from "lucide-react";
-import { toast } from "sonner@2.0.3";
+import {
+  ClipboardCheck,
+  MapPin,
+  Clock,
+  Calendar,
+  Camera,
+  RotateCw,
+  X,
+  CheckCircle,
+  AlertCircle,
+} from "lucide-react";
+import { toast } from "sonner";
 import type { Guard } from "../types";
 
 interface StartWorkDialogProps {
@@ -40,12 +50,11 @@ export function StartWorkDialog({
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  // Запуск камеры
   const startCamera = useCallback(async () => {
     setCameraError(null);
+    setIsCameraActive(false);
 
     try {
-      // Проверяем поддержку камеры
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error("Ваш браузер не поддерживает доступ к камере");
       }
@@ -55,80 +64,78 @@ export function StartWorkDialog({
         audio: false,
       });
 
+      streamRef.current = stream;
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        streamRef.current = stream;
-        setIsCameraActive(true);
-        setCameraError(null);
-      } else {
-        // Ожидаем пока видеоэлемент будет готов и назначаем поток
-        const waitForVideoElement = () => {
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            streamRef.current = stream;
-            setIsCameraActive(true);
-            setCameraError(null);
-          } else {
-            requestAnimationFrame(waitForVideoElement);
-          }
-        };
-        requestAnimationFrame(waitForVideoElement);
+        videoRef.current.muted = true;
+        try {
+          await videoRef.current.play();
+        } catch {
+          /* ignore */
+        }
       }
+
+      setIsCameraActive(true);
+      setCameraError(null);
     } catch (error: any) {
-      // Обрабатываем ошибку камеры
       let errorMessage = "Не удалось получить доступ к камере";
-      
+
       if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
-        errorMessage = "Доступ к камере запрещен. Разрешите доступ к камере в настройках браузера и попробуйте снова.";
+        errorMessage =
+          "Доступ к камере запрещен. Разрешите доступ к камере в настройках браузера и попробуйте снова.";
       } else if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
         errorMessage = "Камера не найдена. Подключите камеру и попробуйте снова.";
       } else if (error.name === "NotReadableError" || error.name === "TrackStartError") {
-        errorMessage = "Камера используется другим приложением. Закройте другие приложения и попробуйте снова.";
+        errorMessage =
+          "Камера используется другим приложением. Закройте другие приложения и попробуйте снова.";
       } else if (error.name === "OverconstrainedError") {
-        errorMessage = "Камера не поддерживает запрошенные параметры. Попробуйте другую камеру.";
+        errorMessage =
+          "Камера не поддерживает запрошенные параметры. Попробуйте другую камеру.";
       } else if (error.message) {
         errorMessage = error.message;
       }
-      
+
       setCameraError(errorMessage);
       setIsCameraActive(false);
     }
   }, []);
 
-  // Остановка камеры
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
-      setIsCameraActive(false);
     }
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
+    setIsCameraActive(false);
   }, []);
 
-  // Сделать фото
   const takePhoto = () => {
-    if (videoRef.current) {
-      const canvas = document.createElement("canvas");
-      canvas.width = videoRef.current.videoWidth;
-      canvas.height = videoRef.current.videoHeight;
-      const ctx = canvas.getContext("2d");
+    if (!videoRef.current) return;
 
-      if (ctx) {
-        ctx.drawImage(videoRef.current, 0, 0);
-        const photoData = canvas.toDataURL("image/jpeg", 0.9);
-        setPhoto(photoData);
-        stopCamera();
-        setStep("confirm");
-      }
-    }
+    const canvas = document.createElement("canvas");
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) return;
+
+    ctx.drawImage(videoRef.current, 0, 0);
+    const photoData = canvas.toDataURL("image/jpeg", 0.9);
+    setPhoto(photoData);
+    stopCamera();
+    setStep("confirm");
   };
 
-  // Переснять фото
   const retakePhoto = () => {
     setPhoto(null);
     setStep("photo");
   };
 
-  // Подтвердить начало смены
   const handleStart = async () => {
     if (!photo) {
       toast.error("Необходимо сделать фото перед началом смены");
@@ -138,20 +145,17 @@ export function StartWorkDialog({
     setLoading(true);
 
     try {
-      // Сохраняем время начала работы
       const startTime = new Date().toISOString();
       localStorage.setItem(`guard_shift_start_${guard.id}`, startTime);
 
-      // Сохраняем фото начала смены
       const shiftStartData = {
         guardId: guard.id,
         checkpointId: guard.checkpointId,
-        photo: photo,
+        photo,
         timestamp: startTime,
-        type: "shift_start"
+        type: "shift_start",
       };
 
-      // Сохраняем в localStorage (можно добавить в БД)
       const shiftRecords = JSON.parse(
         localStorage.getItem("shift_records") || "[]"
       );
@@ -160,7 +164,6 @@ export function StartWorkDialog({
 
       toast.success("Смена успешно начата!");
 
-      // Закрываем диалог и вызываем callback
       setTimeout(() => {
         onOpenChange(false);
         onConfirm();
@@ -173,18 +176,9 @@ export function StartWorkDialog({
     }
   };
 
-  // Переход к фото
   const handleNext = () => {
     setStep("photo");
   };
-
-  useEffect(() => {
-    if (open && step === "photo") {
-      startCamera();
-    } else if (!open || step !== "photo") {
-      stopCamera();
-    }
-  }, [open, step, startCamera, stopCamera]);
 
   const handleCancel = () => {
     stopCamera();
@@ -195,7 +189,14 @@ export function StartWorkDialog({
     onCancel();
   };
 
-  // Очистка при закрытии
+  useEffect(() => {
+    if (open && step === "photo") {
+      startCamera();
+    } else {
+      stopCamera();
+    }
+  }, [open, step, startCamera, stopCamera]);
+
   useEffect(() => {
     if (!open) {
       stopCamera();
@@ -203,14 +204,13 @@ export function StartWorkDialog({
       setPhoto(null);
       setCameraError(null);
     }
-  }, [open]);
+  }, [open, stopCamera]);
 
-  // Очистка при размонтировании
   useEffect(() => {
     return () => {
       stopCamera();
     };
-  }, []);
+  }, [stopCamera]);
 
   const currentTime = new Date().toLocaleTimeString("ru-RU", {
     hour: "2-digit",
@@ -239,10 +239,9 @@ export function StartWorkDialog({
         </DialogHeader>
 
         <div className="space-y-6">
-          {/* Шаг 1: Информация о смене */}
+          {/* Шаг 1: Информация */}
           {step === "info" && (
             <div className="space-y-4">
-              {/* Информация об охраннике */}
               <div className="bg-muted rounded-lg p-4 space-y-3">
                 <div>
                   <p className="text-sm text-muted-foreground">Охранник</p>
@@ -284,16 +283,18 @@ export function StartWorkDialog({
                 </div>
               </div>
 
-              {/* Текущее время */}
               <div className="text-center p-6 border-2 border-dashed border-border rounded-lg">
-                <p className="text-sm text-muted-foreground mb-2">Текущее время</p>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Текущее время
+                </p>
                 <p className="text-foreground">{currentTime}</p>
               </div>
 
               <div className="flex items-center gap-2 p-4 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg">
                 <AlertCircle className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                 <p className="text-sm text-blue-800 dark:text-blue-200">
-                  Для начала смены необходимо сделать фото для фиксации вступления на пост
+                  Для начала смены необходимо сделать фото для фиксации
+                  вступления на пост
                 </p>
               </div>
             </div>
@@ -303,37 +304,34 @@ export function StartWorkDialog({
           {step === "photo" && (
             <div className="space-y-4">
               <div className="bg-muted rounded-lg p-4">
-                <p className="text-sm text-muted-foreground mb-2">
-                  Охранник:
-                </p>
+                <p className="text-sm text-muted-foreground mb-2">Охранник:</p>
                 <p className="text-foreground">{guard.fullName}</p>
               </div>
 
               <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
-                {isCameraActive ? (
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    className="w-full h-full object-cover"
-                  />
-                ) : cameraError ? (
-                  <div className="absolute inset-0 flex items-center justify-center p-8">
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover"
+                />
+
+                {cameraError && (
+                  <div className="absolute inset-0 flex items-center justify-center p-8 bg-black/60">
                     <div className="text-center">
                       <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
                       <p className="text-white mb-4">Камера недоступна</p>
-                      <Button
-                        onClick={startCamera}
-                        variant="secondary"
-                        size="sm"
-                      >
+                      <Button onClick={startCamera} variant="secondary" size="sm">
                         <Camera className="h-4 w-4 mr-2" />
                         Попробовать снова
                       </Button>
                     </div>
                   </div>
-                ) : (
-                  <div className="absolute inset-0 flex items-center justify-center">
+                )}
+
+                {!cameraError && !isCameraActive && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/40">
                     <div className="text-center">
                       <Camera className="h-16 w-16 text-muted-foreground mx-auto mb-2" />
                       <p className="text-muted-foreground">Подключение камеры...</p>
@@ -378,14 +376,16 @@ export function StartWorkDialog({
           {step === "confirm" && photo && (
             <div className="space-y-4">
               <div className="bg-muted rounded-lg p-4">
-                <p className="text-sm text-muted-foreground mb-2">
-                  Охранник:
-                </p>
+                <p className="text-sm text-muted-foreground mb-2">Охранник:</p>
                 <p className="text-foreground">{guard.fullName}</p>
               </div>
 
               <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
-                <img src={photo} alt="Фото охранника" className="w-full h-full object-cover" />
+                <img
+                  src={photo}
+                  alt="Фото охранника"
+                  className="w-full h-full object-cover"
+                />
               </div>
 
               <div className="flex items-center gap-2 p-4 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg">
@@ -401,11 +401,7 @@ export function StartWorkDialog({
         <DialogFooter>
           {step === "info" && (
             <>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleCancel}
-              >
+              <Button type="button" variant="outline" onClick={handleCancel}>
                 Отмена
               </Button>
               <Button onClick={handleNext}>
@@ -417,11 +413,7 @@ export function StartWorkDialog({
 
           {step === "photo" && (
             <>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleCancel}
-              >
+              <Button type="button" variant="outline" onClick={handleCancel}>
                 <X className="h-4 w-4 mr-2" />
                 Отмена
               </Button>

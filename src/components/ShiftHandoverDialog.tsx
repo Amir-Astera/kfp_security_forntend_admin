@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -34,7 +34,9 @@ export function ShiftHandoverDialog({
   currentGuard,
   onSuccess,
 }: ShiftHandoverDialogProps) {
-  const [step, setStep] = useState<"select" | "newGuardPhoto" | "confirm">("select");
+  const [step, setStep] = useState<"select" | "newGuardPhoto" | "confirm">(
+    "select"
+  );
   const [selectedGuard, setSelectedGuard] = useState<string>("");
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [newGuardPhoto, setNewGuardPhoto] = useState<string | null>(null);
@@ -54,27 +56,13 @@ export function ShiftHandoverDialog({
   );
 
   // Запуск камеры
-  const startCamera = async () => {
+  const startCamera = useCallback(async () => {
     setCameraError(null);
-    
+    setIsCameraActive(false);
+
     try {
-      // Проверяем поддержку камеры
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error("Ваш браузер не поддерживает доступ к камере");
-      }
-
-      if (streamRef.current) {
-        if (videoRef.current && videoRef.current.srcObject !== streamRef.current) {
-          videoRef.current.srcObject = streamRef.current;
-          try {
-            await videoRef.current.play();
-          } catch (e) {
-            // Игнорируем ошибку запуска воспроизведения
-          }
-        }
-
-        setIsCameraActive(true);
-        return;
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -86,67 +74,69 @@ export function ShiftHandoverDialog({
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-
+        videoRef.current.muted = true;
         try {
           await videoRef.current.play();
-        } catch (e) {
-          // Игнорируем ошибку запуска воспроизведения
+        } catch {
+          /* ignore */
         }
       }
 
       setIsCameraActive(true);
       setCameraError(null);
     } catch (error: any) {
-      // Обрабатываем ошибку камеры без вывода в console.error
       let errorMessage = "Не удалось получить доступ к камере";
-      
+
       if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
-        errorMessage = "Доступ к камере запрещен. Разрешите доступ к камере в настройках браузера и попробуйте снова.";
+        errorMessage =
+          "Доступ к камере запрещен. Разрешите доступ к камере в настройках браузера и попробуйте снова.";
       } else if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
         errorMessage = "Камера не найдена. Подключите камеру и попробуйте снова.";
       } else if (error.name === "NotReadableError" || error.name === "TrackStartError") {
-        errorMessage = "Камера используется другим приложением. Закройте другие приложения и попробуйте снова.";
+        errorMessage =
+          "Камера используется другим приложением. Закройте другие приложения и попробуйте снова.";
       } else if (error.name === "OverconstrainedError") {
-        errorMessage = "Камера не поддерживает запрошенные параметры. Попробуйте другую камеру.";
+        errorMessage =
+          "Камера не поддерживает запрошенные параметры. Попробуйте другую камеру.";
       } else if (error.message) {
         errorMessage = error.message;
       }
-      
+
       setCameraError(errorMessage);
-      // Не показываем toast для ошибок разрешения камеры, т.к. они показываются в UI
       setIsCameraActive(false);
     }
-  };
+  }, []);
 
   // Остановка камеры
-  const stopCamera = () => {
+  const stopCamera = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
-      setIsCameraActive(false);
     }
 
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
-  };
+
+    setIsCameraActive(false);
+  }, []);
 
   // Сделать фото
   const takePhoto = () => {
-    if (videoRef.current) {
-      const canvas = document.createElement("canvas");
-      canvas.width = videoRef.current.videoWidth;
-      canvas.height = videoRef.current.videoHeight;
-      const ctx = canvas.getContext("2d");
+    if (!videoRef.current) return;
 
-      if (ctx) {
-        ctx.drawImage(videoRef.current, 0, 0);
-        const photoData = canvas.toDataURL("image/jpeg", 0.9);
-        setNewGuardPhoto(photoData);
-        stopCamera();
-        setStep("confirm");
-      }
-    }
+    const canvas = document.createElement("canvas");
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) return;
+
+    ctx.drawImage(videoRef.current, 0, 0);
+    const photoData = canvas.toDataURL("image/jpeg", 0.9);
+    setNewGuardPhoto(photoData);
+    stopCamera();
+    setStep("confirm");
   };
 
   // Переснять фото
@@ -165,7 +155,6 @@ export function ShiftHandoverDialog({
     setLoading(true);
 
     try {
-      // Сохраняем запись о передаче смены в БД
       const handoverData = {
         previousGuardId: currentGuard.id,
         newGuardId: selectedGuard,
@@ -174,15 +163,12 @@ export function ShiftHandoverDialog({
         timestamp: new Date().toISOString(),
       };
 
-      // Здесь должна быть функция сохранения в БД
-      // Для демо просто сохраняем в localStorage
       const handovers = JSON.parse(
         localStorage.getItem("shift_handovers") || "[]"
       );
       handovers.push(handoverData);
       localStorage.setItem("shift_handovers", JSON.stringify(handovers));
 
-      // Обновляем last_activity у текущего охранника
       if (db.updateGuard) {
         db.updateGuard(currentGuard.id, {
           lastActivity: new Date().toISOString(),
@@ -191,7 +177,6 @@ export function ShiftHandoverDialog({
 
       toast.success("Смена успешно передана!");
 
-      // Закрываем диалог и вызываем callback
       setTimeout(() => {
         onOpenChange(false);
         onSuccess();
@@ -214,34 +199,16 @@ export function ShiftHandoverDialog({
     setStep("newGuardPhoto");
   };
 
+  // Управление камерой по шагу/открытию диалога
   useEffect(() => {
     if (open && step === "newGuardPhoto") {
       startCamera();
     } else {
       stopCamera();
     }
-  }, [open, step]);
+  }, [open, step, startCamera, stopCamera]);
 
-  useEffect(() => {
-    if (
-      open &&
-      step === "newGuardPhoto" &&
-      isCameraActive &&
-      videoRef.current &&
-      streamRef.current &&
-      videoRef.current.srcObject !== streamRef.current
-    ) {
-      videoRef.current.srcObject = streamRef.current;
-      const playPromise = videoRef.current.play();
-      if (playPromise) {
-        playPromise.catch(() => {
-          // Игнорируем ошибку запуска воспроизведения
-        });
-      }
-    }
-  }, [open, step, isCameraActive]);
-
-  // Очистка при закрытии
+  // Сброс состояния при закрытии диалога
   useEffect(() => {
     if (!open) {
       stopCamera();
@@ -250,14 +217,14 @@ export function ShiftHandoverDialog({
       setNewGuardPhoto(null);
       setCameraError(null);
     }
-  }, [open]);
+  }, [open, stopCamera]);
 
   // Очистка при размонтировании
   useEffect(() => {
     return () => {
       stopCamera();
     };
-  }, []);
+  }, [stopCamera]);
 
   const selectedGuardData = availableGuards.find((g) => g.id === selectedGuard);
 
@@ -320,7 +287,7 @@ export function ShiftHandoverDialog({
             </div>
           )}
 
-          {/* Шаг 2: Фото */}
+          {/* Шаг 2: Фото нового охранника */}
           {step === "newGuardPhoto" && (
             <div className="space-y-4">
               <div className="bg-muted rounded-lg p-4">
@@ -331,30 +298,32 @@ export function ShiftHandoverDialog({
               </div>
 
               <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
-                {isCameraActive ? (
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    className="w-full h-full object-cover"
-                  />
-                ) : cameraError ? (
-                  <div className="absolute inset-0 flex items-center justify-center p-8">
+                {/* Видео ВСЕГДА в DOM на шаге фото */}
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover"
+                />
+
+                {/* Ошибка камеры поверх видео */}
+                {cameraError && (
+                  <div className="absolute inset-0 flex items-center justify-center p-8 bg-black/60">
                     <div className="text-center">
                       <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
                       <p className="text-white mb-4">Камера недоступна</p>
-                      <Button
-                        onClick={startCamera}
-                        variant="secondary"
-                        size="sm"
-                      >
+                      <Button onClick={startCamera} variant="secondary" size="sm">
                         <Camera className="h-4 w-4 mr-2" />
                         Попробовать снова
                       </Button>
                     </div>
                   </div>
-                ) : (
-                  <div className="absolute inset-0 flex items-center justify-center">
+                )}
+
+                {/* Пока камера не активна, но ошибки нет — "Подключение..." */}
+                {!cameraError && !isCameraActive && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/40">
                     <div className="text-center">
                       <Camera className="h-16 w-16 text-muted-foreground mx-auto mb-2" />
                       <p className="text-muted-foreground">Подключение камеры...</p>
@@ -406,13 +375,18 @@ export function ShiftHandoverDialog({
               </div>
 
               <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
-                <img src={newGuardPhoto} alt="Фото охранника" className="w-full h-full object-cover" />
+                <img
+                  src={newGuardPhoto}
+                  alt="Фото охранника"
+                  className="w-full h-full object-cover"
+                />
               </div>
 
               <div className="flex items-center gap-2 p-4 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
                 <p className="text-sm text-green-800 dark:text-green-200">
-                  После подтверждения ваша сессия будет закрыта, а новый охранник автоматически войдет в систему
+                  После подтверждения ваша сессия будет закрыта, а новый охранник
+                  автоматически войдет в систему
                 </p>
               </div>
             </div>
