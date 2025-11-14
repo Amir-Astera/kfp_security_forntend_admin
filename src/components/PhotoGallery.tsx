@@ -69,6 +69,7 @@ interface GalleryPhoto {
   kind: "START" | "END";
   shiftType?: "day" | "night" | null;
   timestamp: Date;
+  takenAtDate?: Date | null;
   takenAtRaw?: string | null;
   fileId?: string;
   fileFormat?: string;
@@ -117,6 +118,11 @@ function mapShiftPhoto(item: ShiftPhotoApiItem): GalleryPhoto {
   const timestamp = Number.isNaN(timestampCandidate.getTime())
     ? new Date()
     : timestampCandidate;
+  const takenAtDateCandidate = item.takenAt ? new Date(item.takenAt) : null;
+  const takenAtDate =
+    takenAtDateCandidate && !Number.isNaN(takenAtDateCandidate.getTime())
+      ? takenAtDateCandidate
+      : null;
 
   const normalizedShiftType = item.shiftType
     ? String(item.shiftType).toLowerCase()
@@ -143,6 +149,7 @@ function mapShiftPhoto(item: ShiftPhotoApiItem): GalleryPhoto {
         ? (normalizedShiftType as "day" | "night")
         : null,
     timestamp,
+    takenAtDate,
     takenAtRaw: rawTimestamp,
     fileId: item.fileId,
     fileFormat: item.fileFormat,
@@ -331,10 +338,10 @@ export function PhotoGallery({ authTokens, userRole = "superadmin" }: PhotoGalle
       return 1;
     }
 
-    return Math.max(1, Math.ceil(total / SHIFT_PHOTO_PAGE_SIZE));
+    return Math.max(1, Math.ceil(total / PAGE_SIZE));
   }, [total]);
 
-  const handleResetFilters = () => {
+  const resetFilters = () => {
     setSearchQuery("");
     setSelectedAgency("all");
     setSelectedBranch("all");
