@@ -469,7 +469,7 @@ export function AppLayout({
 
             <div className="flex items-center gap-3">
               {/* Кнопка передачи смены для охранников */}
-              {userRole === "guard" && guardInfo && (
+              {userRole === "guard" && guardData && (
                 <Button
                   onClick={() => setShowHandoverDialog(true)}
                   variant="outline"
