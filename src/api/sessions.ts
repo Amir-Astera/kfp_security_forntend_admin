@@ -95,21 +95,28 @@ export async function openGuardSession<T = unknown>(
   return { sessionId, payload: data };
 }
 
-export async function closeGuardSession(
-  sessionId: string,
+export interface CloseSessionsRequest {
+  shiftId: string;
+  deviceFp?: string;
+  deviceKind?: string;
+  deviceLabel?: string;
+  userAgent?: string;
+}
+
+export async function closeGuardSessions(
+  payload: CloseSessionsRequest,
   tokens: AuthTokens
 ): Promise<void> {
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/sessions/${encodeURIComponent(sessionId)}/close`,
-    {
-      method: "POST",
-      headers: {
-        ...getAuthHeaders(tokens),
-      },
-    }
-  );
+  const response = await fetch(`${API_BASE_URL}/api/v1/sessions/close`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(tokens),
+    },
+    body: JSON.stringify(payload),
+  });
 
-  await handleErrorResponse(response, "Не удалось завершить смену");
+  await handleErrorResponse(response, "Не удалось закрыть смену");
 }
 
 export async function uploadShiftPhoto(

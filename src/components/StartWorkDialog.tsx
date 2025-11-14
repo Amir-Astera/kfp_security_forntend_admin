@@ -27,7 +27,11 @@ import type {
   Guard,
   GuardShiftEventDetail,
 } from "../types";
-import { closeGuardSession, openGuardSession, uploadShiftPhoto } from "../api/sessions";
+import {
+  closeGuardSessions,
+  openGuardSession,
+  uploadShiftPhoto,
+} from "../api/sessions";
 import { startTodayGuardShift } from "../api/guardShifts";
 import { dataUrlToFile } from "../utils/file";
 
@@ -193,18 +197,25 @@ export function StartWorkDialog({
 
     setLoading(true);
 
-    let openedSessionId: string | null = null;
+    let shiftId: string | null = null;
+    let fallbackDeviceInfo: {
+      deviceLabel?: string;
+      deviceKind?: string;
+      deviceFp?: string;
+      userAgent?: string;
+    } | null = null;
 
     try {
       const startPayload = await startTodayGuardShift(tokens);
-      const shiftId = startPayload.shiftId;
+      shiftId = startPayload.shiftId;
       const startTime = startPayload.startedAt ?? new Date().toISOString();
 
-      const deviceLabel =
-        typeof navigator !== "undefined" ? navigator.userAgent : "unknown-device";
-
-      const deviceKind = "WEB";
+      const userAgent = typeof navigator !== "undefined" ? navigator.userAgent : "unknown";
+      const deviceLabel = userAgent;
+      const deviceKind = /Mobi|Android/i.test(userAgent) ? "MOBILE" : "BROWSER";
       const deviceFp = getDeviceFingerprint();
+
+      fallbackDeviceInfo = { deviceLabel, deviceKind, deviceFp, userAgent };
 
       const { sessionId } = await openGuardSession(
         {
@@ -218,8 +229,6 @@ export function StartWorkDialog({
         },
         tokens
       );
-
-      openedSessionId = sessionId;
 
       const photoFile = dataUrlToFile(
         photo,
@@ -235,8 +244,12 @@ export function StartWorkDialog({
 
       if (typeof window !== "undefined") {
         window.localStorage.setItem(`guard_shift_start_${guard.id}`, startTime);
-        window.localStorage.setItem(`guard_shift_session_${guard.id}`, sessionId);
         window.localStorage.setItem(`guard_shift_id_${guard.id}`, shiftId);
+        window.localStorage.setItem(`guard_shift_session_${guard.id}`, sessionId);
+        window.localStorage.setItem(
+          `guard_shift_device_${guard.id}`,
+          JSON.stringify({ deviceLabel, deviceKind, deviceFp, userAgent })
+        );
 
         const shiftRecords = JSON.parse(
           window.localStorage.getItem("shift_records") || "[]"
@@ -273,9 +286,22 @@ export function StartWorkDialog({
       }, 500);
     } catch (error) {
       console.error("Ошибка начала смены:", error);
-      if (openedSessionId) {
+      if (shiftId) {
         try {
-          await closeGuardSession(openedSessionId, tokens);
+          await closeGuardSessions(
+            {
+              shiftId,
+              deviceFp:
+                fallbackDeviceInfo?.deviceFp ??
+                (typeof window !== "undefined"
+                  ? window.localStorage.getItem("guard_device_fingerprint") ?? undefined
+                  : undefined),
+              deviceKind: fallbackDeviceInfo?.deviceKind,
+              deviceLabel: fallbackDeviceInfo?.deviceLabel,
+              userAgent: fallbackDeviceInfo?.userAgent,
+            },
+            tokens
+          );
         } catch (closeError) {
           console.error("Не удалось откатить сессию охранника", closeError);
         }

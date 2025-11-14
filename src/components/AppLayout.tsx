@@ -31,7 +31,7 @@ import {
 import { db } from "../services";
 import { ShiftHandoverDialog } from "./ShiftHandoverDialog";
 import type { AuthResponse, Guard, GuardShiftEventDetail } from "../types";
-import { closeGuardSession } from "../api/sessions";
+import { closeGuardSessions } from "../api/sessions";
 import { getTodayGuardShift, finishTodayGuardShift } from "../api/guardShifts";
 import { toast } from "sonner";
 
@@ -267,55 +267,110 @@ export function AppLayout({
       const sessionKey = `guard_shift_session_${userId}`;
       const shiftStartKey = `guard_shift_start_${userId}`;
       const shiftIdKey = `guard_shift_id_${userId}`;
-      const sessionId = storage.getItem(sessionKey);
+      const deviceKey = `guard_shift_device_${userId}`;
 
       if (!authHeaders) {
         toast.error("Нет данных авторизации для завершения смены");
-      } else {
-        try {
-          const finishResult = await finishTodayGuardShift(authHeaders);
-          const detail: GuardShiftEventDetail = {
-            status: finishResult.shiftStatus ?? "DONE",
-            shiftId: finishResult.shiftId,
-            finishedAt: finishResult.finishedAt,
-          };
-          window.dispatchEvent(
-            new CustomEvent<GuardShiftEventDetail>("guard-shift-updated", { detail })
-          );
-        } catch (error) {
-          console.error("Не удалось завершить смену", error);
-          const message =
-            error instanceof Error && error.message
-              ? error.message
-              : "Не удалось завершить смену";
-          toast.error(message);
-          return;
-        }
+        return;
+      }
 
-        if (sessionId) {
-          try {
-            await closeGuardSession(sessionId, authHeaders);
-          } catch (error) {
-            console.error("Не удалось закрыть сессию охранника", error);
-            const message =
-              error instanceof Error && error.message
-                ? error.message
-                : "Не удалось закрыть смену";
-            toast.error(message);
-          }
+      const storedShiftId = storage.getItem(shiftIdKey) ?? undefined;
+      const fallbackShiftId = guardData?.currentShiftId ?? undefined;
+      const shiftId = storedShiftId || fallbackShiftId;
+
+      if (!shiftId) {
+        toast.error("Не удалось определить активную смену охранника");
+        return;
+      }
+
+      let deviceInfo: {
+        deviceFp?: string;
+        deviceKind?: string;
+        deviceLabel?: string;
+        userAgent?: string;
+      } = {};
+
+      const rawDevice = storage.getItem(deviceKey);
+      if (rawDevice) {
+        try {
+          deviceInfo = { ...JSON.parse(rawDevice) };
+        } catch (error) {
+          console.warn("Не удалось разобрать данные устройства смены", error);
         }
+      }
+
+      if (typeof navigator !== "undefined") {
+        const userAgent = navigator.userAgent;
+        if (!deviceInfo.userAgent) {
+          deviceInfo.userAgent = userAgent;
+        }
+        if (!deviceInfo.deviceLabel) {
+          deviceInfo.deviceLabel = userAgent;
+        }
+        if (!deviceInfo.deviceKind) {
+          deviceInfo.deviceKind = /Mobi|Android/i.test(userAgent) ? "MOBILE" : "BROWSER";
+        }
+      }
+
+      if (typeof window !== "undefined" && !deviceInfo.deviceFp) {
+        const storedFp = window.localStorage.getItem("guard_device_fingerprint") ?? undefined;
+        if (storedFp) {
+          deviceInfo.deviceFp = storedFp;
+        }
+      }
+
+      try {
+        await closeGuardSessions(
+          {
+            shiftId,
+            deviceFp: deviceInfo.deviceFp,
+            deviceKind: deviceInfo.deviceKind,
+            deviceLabel: deviceInfo.deviceLabel,
+            userAgent: deviceInfo.userAgent,
+          },
+          authHeaders
+        );
+      } catch (error) {
+        console.error("Не удалось закрыть сессии охранника", error);
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "Не удалось закрыть смену";
+        toast.error(message);
+        return;
+      }
+
+      try {
+        const finishResult = await finishTodayGuardShift(authHeaders);
+        const detail: GuardShiftEventDetail = {
+          status: finishResult.shiftStatus ?? "DONE",
+          shiftId: finishResult.shiftId,
+          finishedAt: finishResult.finishedAt,
+        };
+        window.dispatchEvent(
+          new CustomEvent<GuardShiftEventDetail>("guard-shift-updated", { detail })
+        );
+      } catch (error) {
+        console.error("Не удалось завершить смену", error);
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "Не удалось завершить смену";
+        toast.error(message);
+        return;
       }
 
       storage.removeItem(sessionKey);
       storage.removeItem(shiftStartKey);
       storage.removeItem(shiftIdKey);
+      storage.removeItem(deviceKey);
       setGuardInfo(null);
     }
 
     if (onLogout) {
       onLogout();
     }
-  }, [authHeaders, onLogout, userId, userRole]);
+  }, [authHeaders, guardData?.currentShiftId, onLogout, userId, userRole]);
 
   return (
     <div className="flex h-screen bg-background">
