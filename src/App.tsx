@@ -246,7 +246,7 @@ export default function App() {
       // Интерфейс агентства
       switch (currentPage) {
         case "dashboard":
-          return <AgencyDashboard />;
+          return <AgencyDashboard authTokens={authTokens} />;
         case "guards":
           return <AgencyGuardsManager authTokens={authTokens} agencyId={userId} />;
         case "timesheet":
@@ -258,7 +258,7 @@ export default function App() {
         case "reports":
           return <ReportsPage />;
         default:
-          return <AgencyDashboard />;
+          return <AgencyDashboard authTokens={authTokens} />;
       }
     } else if (userRole === "guard") {
       // Интерфейс охранника - только дашборд
