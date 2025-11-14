@@ -217,6 +217,65 @@ export interface GuardDashboardCardsResponse {
   leftThisShift: number;
 }
 
+export interface AgencyDashboardCards {
+  guardsTotal: number;
+  guardsActive: number;
+  contractedBranches: number;
+  onVacation: number;
+  onSickLeave: number;
+  overtimeCount: number;
+  screenTimeTodayMinutes: number;
+  onShiftNow: number;
+}
+
+export interface AgencyDashboardStatusSummary {
+  active: number;
+  vacation: number;
+  sick: number;
+}
+
+export interface AgencyDashboardScreenTimeItem {
+  guardId: string;
+  guardName: string;
+  minutes: number;
+  branchName?: string;
+}
+
+export interface AgencyDashboardOvertimeItem {
+  guardId: string;
+  guardName: string;
+  overtimeMinutes: number;
+  branchName?: string;
+}
+
+export interface AgencyDashboardGuardStat {
+  guardId: string;
+  fullName: string;
+  branchName: string;
+  checkpointName: string;
+  shiftType: "day" | "night";
+  shiftStart?: string;
+  shiftEnd?: string;
+  avgProcessingTime?: string;
+  avgProcessingTimeMinutes?: number;
+  lateCount: number;
+  actualHours?: number;
+  plannedHours?: number;
+  actualMinutes?: number;
+  plannedMinutes?: number;
+  overtimeHours?: number;
+  overtimeMinutes?: number;
+  status: "active" | "inactive" | "vacation" | "sick";
+}
+
+export interface AgencyDashboardResponse {
+  cards: AgencyDashboardCards;
+  screenTimeToday: AgencyDashboardScreenTimeItem[];
+  overtimeList: AgencyDashboardOvertimeItem[];
+  statusSummary: AgencyDashboardStatusSummary;
+  guardStatsTable: AgencyDashboardGuardStat[];
+}
+
 export type GuardGuestKindScope = "SHIFT" | "PRESENT";
 
 export interface GuardGuestKindItem {

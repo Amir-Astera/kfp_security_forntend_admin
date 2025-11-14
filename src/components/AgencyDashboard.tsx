@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "./ui/card";
 import { MetricCard } from "./MetricCard";
 import { Button } from "./ui/button";
@@ -13,10 +13,10 @@ import {
   Moon,
   Monitor,
   Building2,
+  RefreshCcw,
 } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Avatar, AvatarFallback } from "./ui/avatar";
-import { Guard } from "../types";
 import {
   Table,
   TableBody,
@@ -32,10 +32,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { db } from "../services";
+import { fetchAgencyDashboard } from "../api/dashboard";
+import type {
+  AgencyDashboardGuardStat,
+  AgencyDashboardResponse,
+  AuthResponse,
+  DashboardPeriod,
+} from "../types";
 
-// Данные для таблицы статистики охранников
-interface GuardStats {
+interface AgencyDashboardProps {
+  authTokens: AuthResponse | null;
+}
+
+interface NormalizedGuardStat {
   id: string;
   fullName: string;
   branchName: string;
@@ -51,125 +60,302 @@ interface GuardStats {
   status: "active" | "inactive" | "vacation" | "sick";
 }
 
-export function AgencyDashboard() {
-  const [guards, setGuards] = useState<Guard[]>([]);
+const defaultCards: AgencyDashboardResponse["cards"] = {
+  guardsTotal: 0,
+  guardsActive: 0,
+  contractedBranches: 0,
+  onVacation: 0,
+  onSickLeave: 0,
+  overtimeCount: 0,
+  screenTimeTodayMinutes: 0,
+  onShiftNow: 0,
+};
+
+const defaultStatusSummary: AgencyDashboardResponse["statusSummary"] = {
+  active: 0,
+  vacation: 0,
+  sick: 0,
+};
+
+const formatMinutes = (minutes: number): string => {
+  if (!Number.isFinite(minutes) || minutes <= 0) {
+    return "0ч";
+  }
+
+  const totalMinutes = Math.round(minutes);
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+
+  if (hours > 0 && mins > 0) {
+    return `${hours}ч ${mins}м`;
+  }
+
+  if (hours > 0) {
+    return `${hours}ч`;
+  }
+
+  return `${mins}м`;
+};
+
+const minutesToHours = (minutes?: number): number => {
+  if (typeof minutes !== "number" || !Number.isFinite(minutes)) {
+    return 0;
+  }
+
+  return minutes / 60;
+};
+
+const roundHours = (hours?: number): number => {
+  if (typeof hours !== "number" || !Number.isFinite(hours)) {
+    return 0;
+  }
+
+  return Math.round(hours * 10) / 10;
+};
+
+const getInitials = (value: string): string => {
+  if (!value) {
+    return "";
+  }
+
+  return value
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+};
+
+const normalizeGuardStat = (
+  stat: AgencyDashboardGuardStat,
+  index: number
+): NormalizedGuardStat => {
+  const shiftStart = stat.shiftStart?.trim() ? stat.shiftStart : undefined;
+  const shiftEnd = stat.shiftEnd?.trim() ? stat.shiftEnd : undefined;
+  const shiftTime =
+    shiftStart || shiftEnd
+      ? `${shiftStart ?? "—"}${shiftEnd ? ` - ${shiftEnd}` : ""}`
+      : "—";
+
+  const avgProcessingTime =
+    stat.avgProcessingTime ??
+    (typeof stat.avgProcessingTimeMinutes === "number"
+      ? formatMinutes(stat.avgProcessingTimeMinutes)
+      : "—");
+
+  const actualHoursRaw =
+    stat.actualHours ?? minutesToHours(stat.actualMinutes);
+  const plannedHoursRaw =
+    stat.plannedHours ?? minutesToHours(stat.plannedMinutes);
+  const overtimeHoursRaw =
+    stat.overtimeHours ?? minutesToHours(stat.overtimeMinutes);
+
+  const actualHours = roundHours(actualHoursRaw);
+  const plannedHours = roundHours(plannedHoursRaw);
+  const overtimeHours = roundHours(overtimeHoursRaw);
+  const hasOvertime = (overtimeHoursRaw ?? 0) > 0;
+
+  return {
+    id: stat.guardId || `guard-${index}`,
+    fullName: stat.fullName || "—",
+    branchName: stat.branchName || "—",
+    checkpointName: stat.checkpointName || "—",
+    shiftType: stat.shiftType ?? "day",
+    shiftTime,
+    avgProcessingTime,
+    lateCount: stat.lateCount ?? 0,
+    actualHours,
+    plannedHours,
+    hasOvertime,
+    overtimeHours,
+    status: stat.status ?? "inactive",
+  };
+};
+
+export function AgencyDashboard({ authTokens }: AgencyDashboardProps) {
+  const [dashboardData, setDashboardData] = useState<AgencyDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  
-  // Фильтры для таблицы статистики
-  const [periodFilter, setPeriodFilter] = useState<string>("month");
+  const [error, setError] = useState<string | null>(null);
+  const [periodFilter, setPeriodFilter] = useState<DashboardPeriod>("TODAY");
   const [branchFilter, setBranchFilter] = useState<string>("all");
   const [checkpointFilter, setCheckpointFilter] = useState<string>("all");
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = () => {
-    try {
-      const allGuards = db.getGuards();
-      setGuards(allGuards);
+    if (!authTokens?.accessToken || !authTokens?.tokenType) {
+      setDashboardData(null);
       setLoading(false);
-    } catch (error) {
-      console.error("Ошибка загрузки данных:", error);
-      setLoading(false);
+      return;
     }
+
+    let isCancelled = false;
+
+    const loadDashboard = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const data = await fetchAgencyDashboard(
+          { period: periodFilter },
+          authTokens
+        );
+
+        if (!isCancelled) {
+          setDashboardData(data);
+        }
+      } catch (err) {
+        if (!isCancelled) {
+          const message =
+            err instanceof Error
+              ? err.message
+              : "Не удалось загрузить данные дашборда";
+          setError(message);
+        }
+      } finally {
+        if (!isCancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadDashboard();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [authTokens?.accessToken, authTokens?.tokenType, periodFilter, reloadToken]);
+
+  const cards = dashboardData?.cards ?? defaultCards;
+  const statusSummary = dashboardData?.statusSummary ?? defaultStatusSummary;
+  const screenTimeItems = dashboardData?.screenTimeToday ?? [];
+  const overtimeItems = dashboardData?.overtimeList ?? [];
+
+  const normalizedGuardStats = useMemo(
+    () =>
+      (dashboardData?.guardStatsTable ?? []).map((stat, index) =>
+        normalizeGuardStat(stat, index)
+      ),
+    [dashboardData?.guardStatsTable]
+  );
+
+  const branches = useMemo(() => {
+    const items = normalizedGuardStats
+      .map((stat) => stat.branchName)
+      .filter((name) => name && name !== "—");
+    return Array.from(new Set(items));
+  }, [normalizedGuardStats]);
+
+  const checkpoints = useMemo(() => {
+    const source =
+      branchFilter === "all"
+        ? normalizedGuardStats
+        : normalizedGuardStats.filter((stat) => stat.branchName === branchFilter);
+
+    const items = source
+      .map((stat) => stat.checkpointName)
+      .filter((name) => name && name !== "—");
+
+    return Array.from(new Set(items));
+  }, [normalizedGuardStats, branchFilter]);
+
+  useEffect(() => {
+    if (branchFilter !== "all" && !branches.includes(branchFilter)) {
+      setBranchFilter("all");
+    }
+  }, [branchFilter, branches]);
+
+  useEffect(() => {
+    if (checkpointFilter !== "all" && !checkpoints.includes(checkpointFilter)) {
+      setCheckpointFilter("all");
+    }
+  }, [checkpointFilter, checkpoints]);
+
+  const filteredGuardsStats = useMemo(() => {
+    return normalizedGuardStats.filter((guard) => {
+      const matchesBranch = branchFilter === "all" || guard.branchName === branchFilter;
+      const matchesCheckpoint =
+        checkpointFilter === "all" || guard.checkpointName === checkpointFilter;
+      return matchesBranch && matchesCheckpoint;
+    });
+  }, [normalizedGuardStats, branchFilter, checkpointFilter]);
+
+  const totalScreenMinutes = screenTimeItems.reduce(
+    (sum, item) => sum + Math.max(0, item.minutes),
+    0
+  );
+  const avgScreenTimeMinutes =
+    screenTimeItems.length > 0
+      ? totalScreenMinutes / screenTimeItems.length
+      : cards.screenTimeTodayMinutes;
+
+  const totalGuards = cards.guardsTotal;
+  const activeGuards = cards.guardsActive;
+  const onVacation = cards.onVacation;
+  const onSick = cards.onSickLeave;
+  const onDutyGuards = cards.onShiftNow;
+  const overtimeCount = cards.overtimeCount ?? overtimeItems.length;
+  const avgScreenTimeDisplay = formatMinutes(avgScreenTimeMinutes);
+
+  const guardsStatusData = [
+    { name: "Активны", value: statusSummary.active, color: "#10b981" },
+    { name: "В отпуске", value: statusSummary.vacation, color: "#f59e0b" },
+    { name: "На больничном", value: statusSummary.sick, color: "#ef4444" },
+  ].filter((item) => item.value > 0);
+
+  const totalStatusGuards = guardsStatusData.reduce((sum, item) => sum + item.value, 0);
+
+  const handleReload = () => {
+    setReloadToken((token) => token + 1);
   };
 
-  // Вычисление метрик
-  const totalGuards = guards.length;
-  const activeGuards = guards.filter((g) => g.status === "active").length;
-  const onVacation = guards.filter((g) => g.status === "vacation").length;
-  const onSick = guards.filter((g) => g.status === "sick").length;
-
-  // Получение уникальных филиалов
-  const contractedBranches = new Set(guards.map((g) => g.branchName)).size;
-
-  // Охранники на смене (активные охранники, у которых сейчас рабочее время)
-  const currentTime = new Date();
-  const currentHour = currentTime.getHours();
-  const currentDay = ["ВС", "ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ"][currentTime.getDay()];
-  
-  const onDutyGuards = guards.filter((g) => {
-    if (g.status !== "active") return false;
-    if (!g.workDays.includes(currentDay)) return false;
-    
-    const shiftStartHour = parseInt(g.shiftStart.split(":")[0]);
-    const shiftEndHour = parseInt(g.shiftEnd.split(":")[0]);
-    
-    // Проверяем, попадает ли текущее время в рабочую смену
-    if (shiftStartHour < shiftEndHour) {
-      // Обычная смена (например, 08:00 - 20:00)
-      return currentHour >= shiftStartHour && currentHour < shiftEndHour;
-    } else {
-      // Ночная смена через полночь (например, 20:00 - 08:00)
-      return currentHour >= shiftStartHour || currentHour < shiftEndHour;
-    }
-  }).length;
-
-  // Генерация данных переработок и экранного времени (мок-данные)
-  const overtimeGuards = guards.filter(() => Math.random() > 0.7); // ~30% с переработкой
-  const avgScreenTime = 9.5; // Среднее экранное время в часах
-
-  // Статусы охранников
-  const guardsStatusData = [
-    { name: "Активны", value: activeGuards, color: "#10b981" },
-    { name: "В отпуске", value: onVacation, color: "#f59e0b" },
-    { name: "На больничном", value: onSick, color: "#ef4444" },
-  ].filter(item => item.value > 0);
-
-  // Данные для таблицы статистики охранников
-  const guardsStatsData: GuardStats[] = guards.map((guard) => {
-    return {
-      id: guard.id,
-      fullName: guard.fullName,
-      branchName: guard.branchName,
-      checkpointName: guard.checkpointName,
-      shiftType: guard.shiftType,
-      shiftTime: `${guard.shiftStart} - ${guard.shiftEnd}`,
-      avgProcessingTime: "02:30", // Заглушка
-      lateCount: 0, // Заглушка
-      actualHours: 264, // Заглушка
-      plannedHours: 240, // Заглушка
-      hasOvertime: Math.random() > 0.5, // Заглушка
-      overtimeHours: Math.random() > 0.5 ? 20 : 0, // Заглушка
-      status: guard.status,
-    };
-  });
-
-  // Фильтрация данных таблицы
-  const filteredGuardsStats = guardsStatsData.filter((guard) => {
-    const matchesBranch = branchFilter === "all" || guard.branchName === branchFilter;
-    const matchesCheckpoint = checkpointFilter === "all" || guard.checkpointName === checkpointFilter;
-    return matchesBranch && matchesCheckpoint;
-  });
-
-  // Уникальные филиалы и КПП для фильтров
-  const branches = Array.from(new Set(guardsStatsData.map((g) => g.branchName)));
-  const checkpoints = branchFilter === "all"
-    ? Array.from(new Set(guardsStatsData.map((g) => g.checkpointName)))
-    : Array.from(new Set(guardsStatsData.filter((g) => g.branchName === branchFilter).map((g) => g.checkpointName)));
-
-  if (loading) {
+  if (loading && !dashboardData) {
     return <div className="text-center py-12 text-muted-foreground">Загрузка...</div>;
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h2 className="text-foreground mb-1">Панель управления</h2>
-        <p className="text-muted-foreground">
-          ТОО «Казахстан Секьюрити» • Обзор за текущий месяц
-        </p>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h2 className="text-foreground mb-1">Панель управления</h2>
+          <p className="text-muted-foreground">
+            ТОО «Казахстан Секьюрити» • Обзор за выбранный период
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Select
+            value={periodFilter}
+            onValueChange={(value) => setPeriodFilter(value as DashboardPeriod)}
+          >
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="Период" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="TODAY">Сегодня</SelectItem>
+              <SelectItem value="WEEK">Неделя</SelectItem>
+              <SelectItem value="MONTH">Месяц</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant="outline" onClick={handleReload} disabled={loading}>
+            <RefreshCcw
+              className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`}
+            />
+            Обновить
+          </Button>
+        </div>
       </div>
 
-      {/* Metrics Grid */}
-      <div className="grid grid-cols-4 gap-4">
+      {error && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           title="Всего охранников"
           value={totalGuards}
           icon={Users}
-          trend="+2 за месяц"
           iconClassName="text-primary"
         />
         <MetricCard
@@ -180,7 +366,7 @@ export function AgencyDashboard() {
         />
         <MetricCard
           title="Филиалов"
-          value={contractedBranches}
+          value={cards.contractedBranches}
           subtitle="по контракту"
           icon={Building2}
           iconClassName="text-primary"
@@ -193,8 +379,7 @@ export function AgencyDashboard() {
         />
       </div>
 
-      {/* Second Row Metrics */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           title="На больничном"
           value={onSick}
@@ -203,14 +388,14 @@ export function AgencyDashboard() {
         />
         <MetricCard
           title="Переработки"
-          value={overtimeGuards.length}
+          value={overtimeCount}
           subtitle="охранников"
           icon={Monitor}
           iconClassName="text-warning"
         />
         <MetricCard
           title="Экранное время"
-          value={`${avgScreenTime}ч`}
+          value={avgScreenTimeDisplay}
           subtitle="среднее за сегодня"
           icon={Monitor}
           iconClassName="text-info"
@@ -224,9 +409,7 @@ export function AgencyDashboard() {
         />
       </div>
 
-      {/* Charts Row - информация про охранников */}
-      <div className="grid grid-cols-3 gap-6">
-        {/* Экранное время охранников */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Card className="p-6">
           <h3 className="text-foreground mb-4 flex items-center gap-2">
             <Monitor className="w-5 h-5 text-primary" />
@@ -234,23 +417,32 @@ export function AgencyDashboard() {
           </h3>
           <div className="space-y-4">
             <div className="text-center py-4">
-              <div className="text-foreground mb-1">{avgScreenTime} часов</div>
+              <div className="text-foreground mb-1">{avgScreenTimeDisplay}</div>
               <p className="text-muted-foreground">Среднее за сегодня</p>
             </div>
             <div className="space-y-2">
-              {guards.slice(0, 5).map((guard) => {
-                const screenTime = 8 + Math.random() * 4; // 8-12 часов
+              {screenTimeItems.length === 0 && (
+                <p className="text-center text-sm text-muted-foreground">
+                  Нет данных для отображения
+                </p>
+              )}
+              {screenTimeItems.slice(0, 5).map((item) => {
+                const displayName = item.guardName?.split(" ")[0] ?? item.guardName;
                 return (
-                  <div key={guard.id} className="flex items-center justify-between">
+                  <div key={item.guardId} className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Avatar className="h-8 w-8">
                         <AvatarFallback>
-                          {guard.fullName.split(" ").map((n) => n[0]).join("").substring(0, 2)}
+                          {getInitials(item.guardName)}
                         </AvatarFallback>
                       </Avatar>
-                      <span className="text-muted-foreground">{guard.fullName.split(" ")[0]}</span>
+                      <span className="text-muted-foreground">
+                        {displayName || "—"}
+                      </span>
                     </div>
-                    <span className="text-foreground">{screenTime.toFixed(1)}ч</span>
+                    <span className="text-foreground">
+                      {formatMinutes(item.minutes)}
+                    </span>
                   </div>
                 );
               })}
@@ -258,7 +450,6 @@ export function AgencyDashboard() {
           </div>
         </Card>
 
-        {/* Переработки */}
         <Card className="p-6">
           <h3 className="text-foreground mb-4 flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-warning" />
@@ -266,23 +457,35 @@ export function AgencyDashboard() {
           </h3>
           <div className="space-y-4">
             <div className="text-center py-4">
-              <div className="text-foreground mb-1">{overtimeGuards.length}</div>
+              <div className="text-foreground mb-1">{overtimeCount}</div>
               <p className="text-muted-foreground">Охранников с переработкой</p>
             </div>
             <div className="space-y-2">
-              {overtimeGuards.slice(0, 5).map((guard) => {
-                const overtime = 30 + Math.floor(Math.random() * 90); // 30-120 минут
+              {overtimeItems.length === 0 && (
+                <p className="text-center text-sm text-muted-foreground">
+                  Нет данных для отображения
+                </p>
+              )}
+              {overtimeItems.slice(0, 5).map((item) => {
+                const displayName = item.guardName?.split(" ")[0] ?? item.guardName;
+                const overtimeDisplay =
+                  item.overtimeMinutes > 0
+                    ? `+${formatMinutes(item.overtimeMinutes)}`
+                    : "0ч";
+
                 return (
-                  <div key={guard.id} className="flex items-center justify-between">
+                  <div key={item.guardId} className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Avatar className="h-8 w-8">
                         <AvatarFallback>
-                          {guard.fullName.split(" ").map((n) => n[0]).join("").substring(0, 2)}
+                          {getInitials(item.guardName)}
                         </AvatarFallback>
                       </Avatar>
-                      <span className="text-muted-foreground">{guard.fullName.split(" ")[0]}</span>
+                      <span className="text-muted-foreground">
+                        {displayName || "—"}
+                      </span>
                     </div>
-                    <span className="text-warning">+{overtime}м</span>
+                    <span className="text-warning">{overtimeDisplay}</span>
                   </div>
                 );
               })}
@@ -290,18 +493,17 @@ export function AgencyDashboard() {
           </div>
         </Card>
 
-        {/* Статусы охранников */}
         <Card className="p-6">
           <h3 className="text-foreground mb-4 flex items-center gap-2">
             <Users className="w-5 h-5 text-primary" />
             Статусы охранников
           </h3>
-          {totalGuards > 0 ? (
+          {totalGuards > 0 && guardsStatusData.length > 0 ? (
             <div className="space-y-6">
-              {/* Circular progress bars */}
               <div className="flex items-center justify-center gap-8 py-4">
                 {guardsStatusData.map((item, index) => {
-                  const percentage = totalGuards > 0 ? (item.value / totalGuards) * 100 : 0;
+                  const base = totalStatusGuards || totalGuards;
+                  const percentage = base > 0 ? (item.value / base) * 100 : 0;
                   return (
                     <div key={index} className="flex flex-col items-center gap-2">
                       <div className="relative w-20 h-20">
@@ -329,13 +531,14 @@ export function AgencyDashboard() {
                           <span className="text-foreground">{item.value}</span>
                         </div>
                       </div>
-                      <span className="text-muted-foreground text-center text-xs">{item.name}</span>
+                      <span className="text-muted-foreground text-center text-xs">
+                        {item.name}
+                      </span>
                     </div>
                   );
                 })}
               </div>
-              
-              {/* Legend */}
+
               <div className="space-y-2 border-t pt-4">
                 {guardsStatusData.map((item, index) => (
                   <div key={index} className="flex items-center justify-between">
@@ -348,7 +551,7 @@ export function AgencyDashboard() {
                     </div>
                     <span className="text-foreground">{item.value}</span>
                   </div>
-                ))  }
+                ))}
               </div>
             </div>
           ) : (
@@ -359,27 +562,16 @@ export function AgencyDashboard() {
         </Card>
       </div>
 
-      {/* Guards Statistics Table */}
       <Card className="p-6">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between mb-4">
           <h3 className="text-foreground flex items-center gap-2">
             <Shield className="w-5 h-5 text-primary" />
             Таблица статистики охранников
           </h3>
-          <div className="flex items-center gap-3">
-            <Select value={periodFilter} onValueChange={setPeriodFilter}>
-              <SelectTrigger className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="today">Сегодня</SelectItem>
-                <SelectItem value="week">Неделя</SelectItem>
-                <SelectItem value="month">Месяц</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="flex flex-wrap items-center gap-3">
             <Select value={branchFilter} onValueChange={setBranchFilter}>
               <SelectTrigger className="w-48">
-                <SelectValue />
+                <SelectValue placeholder="Все филиалы" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все филиалы</SelectItem>
@@ -392,7 +584,7 @@ export function AgencyDashboard() {
             </Select>
             <Select value={checkpointFilter} onValueChange={setCheckpointFilter}>
               <SelectTrigger className="w-48">
-                <SelectValue />
+                <SelectValue placeholder="Все КПП" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все КПП</SelectItem>
@@ -439,11 +631,7 @@ export function AgencyDashboard() {
                       <div className="flex items-center gap-3">
                         <Avatar className="h-10 w-10">
                           <AvatarFallback>
-                            {guard.fullName
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")
-                              .substring(0, 2)}
+                            {getInitials(guard.fullName)}
                           </AvatarFallback>
                         </Avatar>
                         <span className="text-foreground">{guard.fullName}</span>
@@ -540,7 +728,7 @@ export function AgencyDashboard() {
         {filteredGuardsStats.length > 0 && (
           <div className="mt-4 flex items-center justify-between">
             <p className="text-muted-foreground">
-              Показано {filteredGuardsStats.length} из {guardsStatsData.length} охранников
+              Показано {filteredGuardsStats.length} из {normalizedGuardStats.length} охранников
             </p>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" disabled>
