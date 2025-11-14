@@ -15,6 +15,7 @@ import {
   closeGuestVisit,
   createGuestVisit,
   getGuestVisits,
+  getGuardShiftHistory,
   getPresentGuestVisits,
   mapGuestVisitToVisit,
 } from "../api/visits";
@@ -412,12 +413,19 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
         tokenType: authTokens.tokenType,
       } as const;
 
-      const shouldLoadPresent = Boolean(guard?.checkpointId);
-      const historyPromise = getGuestVisits(tokens, { guardId, size: 200, page: 0 });
-      const presentPromise = shouldLoadPresent
+      const checkpointId = guard?.checkpointId?.trim();
+      const shouldUseCheckpoint = Boolean(checkpointId);
+      const historyPromise = shouldUseCheckpoint
+        ? getGuardShiftHistory(tokens, {
+            checkpointId,
+            size: 200,
+            page: 0,
+          })
+        : getGuestVisits(tokens, { guardId, size: 200, page: 0 });
+      const presentPromise = shouldUseCheckpoint
         ? getPresentGuestVisits(tokens, {
-            checkpointId: guard?.checkpointId ?? "",
-            size: 20,
+            checkpointId,
+            size: 25,
             page: 0,
           })
         : Promise.resolve(null);
@@ -434,13 +442,17 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
       const errorMessages: string[] = [];
 
       let mappedHistory: Visit[] = [];
+      const historyFallbackMessage = shouldUseCheckpoint
+        ? "Не удалось загрузить историю визитов за смену"
+        : "Не удалось загрузить визиты охранника";
+
       if (historyResult.status === "fulfilled") {
         mappedHistory = historyResult.value.items.map(mapGuestVisitToVisit);
       } else {
-        console.error("Не удалось загрузить визиты охранника", historyResult.reason);
+        console.error(historyFallbackMessage, historyResult.reason);
         const reason = historyResult.reason;
         errorMessages.push(
-          reason instanceof Error ? reason.message : "Не удалось загрузить список визитов",
+          reason instanceof Error ? reason.message : historyFallbackMessage,
         );
       }
 
@@ -450,7 +462,7 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
         if (response) {
           presentVisits = response.items.map(mapGuestVisitToVisit);
         }
-      } else if (shouldLoadPresent) {
+      } else if (shouldUseCheckpoint) {
         console.error("Не удалось загрузить гостей на территории", presentResult.reason);
         const reason = presentResult.reason;
         errorMessages.push(

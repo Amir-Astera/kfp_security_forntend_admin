@@ -80,6 +80,13 @@ export interface PresentGuestVisitsQueryParams {
   guardId?: string;
 }
 
+export interface GuardShiftHistoryQueryParams {
+  page?: number;
+  size?: number;
+  checkpointId?: string;
+  status?: string;
+}
+
 const buildQueryString = (params: Record<string, unknown>): string => {
   const searchParams = new URLSearchParams();
 
@@ -265,7 +272,7 @@ export async function getPresentGuestVisits(
   const { checkpointId, ...filters } = rest;
   const queryString = buildQueryString({ checkpointId, page, size, ...filters });
   const response = await fetch(
-    `${API_BASE_URL}/api/v1/dashboard/guard/present${queryString}`,
+    `${API_BASE_URL}/api/v1/guests/present${queryString}`,
     {
       method: "GET",
       headers: {
@@ -276,6 +283,27 @@ export async function getPresentGuestVisits(
   );
 
   await handleErrorResponse(response, "Не удалось загрузить список гостей на территории");
+  return response.json();
+}
+
+export async function getGuardShiftHistory(
+  tokens: Pick<AuthResponse, "accessToken" | "tokenType">,
+  params: GuardShiftHistoryQueryParams = {}
+): Promise<GuestVisitsResponse> {
+  const { page = 0, size = 25, ...rest } = params;
+  const queryString = buildQueryString({ page, size, ...rest });
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/dashboard/guard/shift/history${queryString}`,
+    {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeaders(tokens),
+      },
+    }
+  );
+
+  await handleErrorResponse(response, "Не удалось загрузить историю визитов за смену");
   return response.json();
 }
 
