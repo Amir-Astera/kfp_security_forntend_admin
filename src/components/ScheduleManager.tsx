@@ -22,7 +22,7 @@ import {
   type ShiftRegistryItem,
   type ShiftDayCountersResponse,
 } from "../api/shifts";
-import { getBranches } from "../api/branches";
+import { getBranches, getBranchesByAgencyId } from "../api/branches";
 
 interface ShiftEvent extends ShiftDetailData {
   dateKey: string;
@@ -30,6 +30,7 @@ interface ShiftEvent extends ShiftDetailData {
 
 interface ScheduleManagerProps {
   authTokens: AuthResponse | null;
+  agencyId?: string;
 }
 
 const formatIsoDate = (date: Date): string => {
@@ -173,7 +174,7 @@ const getWeekDays = (date: Date): Date[] => {
   });
 };
 
-export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
+export function ScheduleManager({ authTokens, agencyId }: ScheduleManagerProps) {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [currentWeekDate] = useState<Date>(() => new Date());
   const [viewMode, setViewMode] = useState<"week" | "month">("week");
@@ -192,6 +193,7 @@ export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
   const [selectedShift, setSelectedShift] = useState<ShiftEvent | null>(null);
 
   const isAuthorized = Boolean(authTokens?.accessToken && authTokens?.tokenType);
+  const hasAgencyScope = Boolean(agencyId);
 
   const handleSelectShift = useCallback((shift: ShiftEvent) => {
     if (isShiftInteractive(shift)) {
@@ -210,18 +212,27 @@ export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
 
     const loadBranches = async () => {
       try {
-        const response = await getBranches(
-          { accessToken: authTokens!.accessToken, tokenType: authTokens!.tokenType },
-          { size: 100 }
-        );
-        setBranches(response.items ?? []);
+        if (hasAgencyScope && agencyId) {
+          const data = await getBranchesByAgencyId(agencyId, {
+            accessToken: authTokens!.accessToken,
+            tokenType: authTokens!.tokenType,
+          });
+          setBranches(Array.isArray(data) ? data : []);
+        } else {
+          const response = await getBranches(
+            { accessToken: authTokens!.accessToken, tokenType: authTokens!.tokenType },
+            { size: 100 }
+          );
+          setBranches(response.items ?? []);
+        }
       } catch (err) {
         console.error("Не удалось загрузить список филиалов", err);
+        setBranches([]);
       }
     };
 
     loadBranches();
-  }, [authTokens, isAuthorized]);
+  }, [agencyId, authTokens, hasAgencyScope, isAuthorized]);
 
   useEffect(() => {
     if (!isAuthorized) {
@@ -233,6 +244,8 @@ export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
     let ignore = false;
     const branchId = branchFilter === "all" ? undefined : branchFilter;
     const dateIso = formatIsoDate(selectedDate);
+    const agencyScopeId = hasAgencyScope ? agencyId : undefined;
+    const scope = hasAgencyScope ? "agency" : undefined;
 
     const loadDayData = async () => {
       setIsDayLoading(true);
@@ -242,11 +255,11 @@ export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
         const [dayResponse, countersResponse] = await Promise.all([
           getDayShiftRegistry(
             { accessToken: authTokens!.accessToken, tokenType: authTokens!.tokenType },
-            { date: dateIso, branchId }
+            { date: dateIso, branchId, agencyId: agencyScopeId, scope }
           ),
           getDayShiftCounters(
             { accessToken: authTokens!.accessToken, tokenType: authTokens!.tokenType },
-            { date: dateIso, branchId }
+            { date: dateIso, branchId, agencyId: agencyScopeId, scope }
           ),
         ]);
 
@@ -278,7 +291,7 @@ export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
     return () => {
       ignore = true;
     };
-  }, [authTokens, branchFilter, isAuthorized, selectedDate]);
+  }, [agencyId, authTokens, branchFilter, hasAgencyScope, isAuthorized, selectedDate]);
 
   useEffect(() => {
     if (!isAuthorized || viewMode !== "week") {
@@ -291,6 +304,8 @@ export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
     let ignore = false;
     const branchId = branchFilter === "all" ? undefined : branchFilter;
     const dateIso = formatIsoDate(currentWeekDate);
+    const agencyScopeId = hasAgencyScope ? agencyId : undefined;
+    const scope = hasAgencyScope ? "agency" : undefined;
 
     const loadWeekData = async () => {
       setIsViewLoading(true);
@@ -299,7 +314,7 @@ export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
       try {
         const response = await getWeekShiftRegistry(
           { accessToken: authTokens!.accessToken, tokenType: authTokens!.tokenType },
-          { date: dateIso, branchId }
+          { date: dateIso, branchId, agencyId: agencyScopeId, scope }
         );
 
         if (ignore) {
@@ -328,7 +343,7 @@ export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
     return () => {
       ignore = true;
     };
-  }, [authTokens, branchFilter, currentWeekDate, isAuthorized, viewMode]);
+  }, [agencyId, authTokens, branchFilter, currentWeekDate, hasAgencyScope, isAuthorized, viewMode]);
 
   useEffect(() => {
     if (!isAuthorized || viewMode !== "month") {
@@ -342,6 +357,8 @@ export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
     const branchId = branchFilter === "all" ? undefined : branchFilter;
     const year = selectedDate.getFullYear();
     const month = selectedDate.getMonth() + 1;
+    const agencyScopeId = hasAgencyScope ? agencyId : undefined;
+    const scope = hasAgencyScope ? "agency" : undefined;
 
     const loadMonthData = async () => {
       setIsViewLoading(true);
@@ -350,7 +367,7 @@ export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
       try {
         const response = await getMonthShiftRegistry(
           { accessToken: authTokens!.accessToken, tokenType: authTokens!.tokenType },
-          { year, month, branchId }
+          { year, month, branchId, agencyId: agencyScopeId, scope }
         );
 
         if (ignore) {
@@ -379,7 +396,7 @@ export function ScheduleManager({ authTokens }: ScheduleManagerProps) {
     return () => {
       ignore = true;
     };
-  }, [authTokens, branchFilter, isAuthorized, selectedDate, viewMode]);
+  }, [agencyId, authTokens, branchFilter, hasAgencyScope, isAuthorized, selectedDate, viewMode]);
 
   if (!isAuthorized) {
     return (

@@ -252,7 +252,7 @@ export default function App() {
         case "timesheet":
           return <AgencyTimesheet />;
         case "schedule":
-          return <ScheduleManager authTokens={authTokens} />;
+          return <ScheduleManager authTokens={authTokens} agencyId={userId} />;
         case "photo-gallery":
           return <PhotoGallery />;
         case "reports":

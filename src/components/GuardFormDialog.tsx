@@ -39,6 +39,7 @@ interface GuardFormDialogProps {
   onSuccess: (data: any) => void;
   authTokens?: AuthResponse | null;
   agencyId?: string;
+  loading?: boolean;
 }
 
 const weekDays = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"];
@@ -62,6 +63,7 @@ export function GuardFormDialog({
   onSuccess,
   authTokens,
   agencyId,
+  loading = false,
 }: GuardFormDialogProps) {
   const [branches, setBranches] = useState<BranchApiResponse[]>([]);
   const [checkpoints, setCheckpoints] = useState<CheckpointApiItem[]>([]);
@@ -69,7 +71,6 @@ export function GuardFormDialog({
   const [selectedCheckpoint, setSelectedCheckpoint] = useState<string>("");
   const [shiftType, setShiftType] = useState<"day" | "night">("day");
   const [workDays, setWorkDays] = useState<string[]>(["ПН", "ВТ", "СР", "ЧТ", "ПТ"]);
-  const [loading, setLoading] = useState(false);
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [checkpointsLoading, setCheckpointsLoading] = useState(false);
   const [birthDate, setBirthDate] = useState<Date | undefined>(undefined);

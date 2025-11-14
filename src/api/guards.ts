@@ -406,32 +406,100 @@ export async function createGuard(
  */
 export async function updateGuard(
   id: string,
-  data: UpdateGuardRequest
+  data: UpdateGuardRequest,
+  tokens?: Pick<AuthResponse, "accessToken" | "tokenType">
 ): Promise<Guard> {
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  if (!tokens?.accessToken || !tokens?.tokenType) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
-  const index = mockGuards.findIndex((guard) => guard.id === id);
-  if (index === -1) {
-    throw new Error("Guard not found");
+    const index = mockGuards.findIndex((guard) => guard.id === id);
+    if (index === -1) {
+      throw new Error("Guard not found");
+    }
+
+    mockGuards[index] = {
+      ...mockGuards[index],
+      ...data,
+    };
+
+    return mockGuards[index];
   }
 
-  mockGuards[index] = {
-    ...mockGuards[index],
-    ...data,
-  };
+  const loginPassword = data.password || data.loginPassword;
 
-  return mockGuards[index];
+  const payloadEntries = Object.entries({
+    agencyId: data.agencyId,
+    branchId: data.branchId,
+    checkpointId: data.checkpointId,
+    fullName: data.fullName,
+    iin: data.iin,
+    birthDate: data.birthDate ? normalizeBirthDateForApi(data.birthDate) : undefined,
+    phone: data.phone ? normalizePhoneNumberForApi(data.phone) : undefined,
+    email: data.email,
+    loginEmail: data.loginEmail,
+    loginPassword: loginPassword || undefined,
+    shiftType: data.shiftType ? normalizeShiftTypeForApi(data.shiftType) : undefined,
+    shiftStart: data.shiftStart ? normalizeShiftTimeForApi(data.shiftStart) : undefined,
+    shiftEnd: data.shiftEnd ? normalizeShiftTimeForApi(data.shiftEnd) : undefined,
+    workingDays: data.workingDays
+      ? mapWorkingDaysForApi(data.workingDays)
+      : data.workDays
+      ? mapWorkingDaysForApi(data.workDays)
+      : undefined,
+    active: typeof data.active === "boolean" ? data.active : undefined,
+    status: data.status ? normalizeStatusForApi(data.status) : undefined,
+  }).filter(([, value]) => value !== undefined);
+
+  const payload = Object.fromEntries(payloadEntries);
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/guards/${id}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `${tokens.tokenType} ${tokens.accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    return parseGuardMutationError(response, "Не удалось обновить охранника");
+  }
+
+  const body = (await response.json()) as GuardApiItem;
+
+  return mapGuardFromApi(body, {
+    agencyName: body.agencyName ?? "",
+    branchName: body.branchName ?? "",
+    checkpointName: body.checkpointName ?? "",
+  });
 }
 
 /**
  * Удалить охранника
  */
-export async function deleteGuard(id: string): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 300));
+export async function deleteGuard(
+  id: string,
+  tokens?: Pick<AuthResponse, "accessToken" | "tokenType">
+): Promise<void> {
+  if (!tokens?.accessToken || !tokens?.tokenType) {
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
-  const index = mockGuards.findIndex((guard) => guard.id === id);
-  if (index !== -1) {
-    mockGuards.splice(index, 1);
+    const index = mockGuards.findIndex((guard) => guard.id === id);
+    if (index !== -1) {
+      mockGuards.splice(index, 1);
+    }
+    return;
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/guards/${id}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `${tokens.tokenType} ${tokens.accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    return parseGuardMutationError(response, "Не удалось удалить охранника");
   }
 }
 
