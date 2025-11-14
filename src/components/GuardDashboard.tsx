@@ -323,9 +323,13 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
     // Закрываем сессию и делаем logout
     if (guard?.id) {
       localStorage.removeItem(`guard_shift_start_${guard.id}`);
+      localStorage.removeItem(`guard_shift_session_${guard.id}`);
+      localStorage.removeItem(`guard_shift_id_${guard.id}`);
     }
     if (guardId) {
       localStorage.removeItem(`guard_shift_start_${guardId}`);
+      localStorage.removeItem(`guard_shift_session_${guardId}`);
+      localStorage.removeItem(`guard_shift_id_${guardId}`);
     }
     onLogout();
   };
@@ -591,6 +595,10 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
         guard={guard}
         branch={branch}
         checkpoint={checkpoint}
+        authTokens={authTokens?.accessToken && authTokens?.tokenType ? {
+          accessToken: authTokens.accessToken,
+          tokenType: authTokens.tokenType,
+        } : null}
         onConfirm={handleStartWork}
         onCancel={handleStartCancelled}
       />

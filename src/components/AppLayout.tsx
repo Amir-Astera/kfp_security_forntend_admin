@@ -1,4 +1,4 @@
-import { ReactNode, useState, useEffect, useMemo } from "react";
+import { ReactNode, useState, useEffect, useMemo, useCallback } from "react";
 import { 
   LayoutDashboard, 
   Building2, 
@@ -30,7 +30,9 @@ import {
 } from "./ui/dropdown-menu";
 import { db } from "../services";
 import { ShiftHandoverDialog } from "./ShiftHandoverDialog";
-import type { Guard } from "../types";
+import type { AuthResponse, Guard } from "../types";
+import { closeGuardSession } from "../api/sessions";
+import { toast } from "sonner";
 
 type UserRole = "superadmin" | "agency" | "guard";
 
@@ -63,16 +65,18 @@ interface AppLayoutProps {
   userName?: string;
   userId?: string;
   onLogout?: () => void;
+  authTokens?: AuthResponse | null;
 }
 
-export function AppLayout({ 
-  children, 
-  currentPage, 
+export function AppLayout({
+  children,
+  currentPage,
   onPageChange,
   userRole = "superadmin",
   userName = "Администратор",
   userId = "",
-  onLogout
+  onLogout,
+  authTokens,
 }: AppLayoutProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [guardInfo, setGuardInfo] = useState<{ shift: string; checkpoint: string } | null>(null);
@@ -126,15 +130,44 @@ export function AppLayout({
     }
   }, [userRole, userId]);
 
-  const handleShiftHandover = () => {
-    // Закрываем сессию и делаем logout
-    if (userId) {
-      localStorage.removeItem(`guard_shift_start_${userId}`);
+  const handleShiftHandover = useCallback(async () => {
+    if (userRole === "guard" && userId && typeof window !== "undefined") {
+      const storage = window.localStorage;
+      const sessionKey = `guard_shift_session_${userId}`;
+      const shiftStartKey = `guard_shift_start_${userId}`;
+      const shiftIdKey = `guard_shift_id_${userId}`;
+      const sessionId = storage.getItem(sessionKey);
+
+      const tokens =
+        authTokens?.accessToken && authTokens?.tokenType
+          ? {
+              accessToken: authTokens.accessToken,
+              tokenType: authTokens.tokenType,
+            }
+          : null;
+
+      if (sessionId && tokens) {
+        try {
+          await closeGuardSession(sessionId, tokens);
+        } catch (error) {
+          console.error("Не удалось закрыть сессию охранника", error);
+          const message =
+            error instanceof Error && error.message
+              ? error.message
+              : "Не удалось закрыть смену";
+          toast.error(message);
+        }
+      }
+
+      storage.removeItem(sessionKey);
+      storage.removeItem(shiftStartKey);
+      storage.removeItem(shiftIdKey);
     }
+
     if (onLogout) {
       onLogout();
     }
-  };
+  }, [authTokens, onLogout, userId, userRole]);
 
   return (
     <div className="flex h-screen bg-background">
@@ -306,6 +339,10 @@ export function AppLayout({
           open={showHandoverDialog}
           onOpenChange={setShowHandoverDialog}
           currentGuard={guardData}
+          authTokens={authTokens?.accessToken && authTokens?.tokenType ? {
+            accessToken: authTokens.accessToken,
+            tokenType: authTokens.tokenType,
+          } : null}
           onSuccess={handleShiftHandover}
         />
       )}

@@ -315,6 +315,7 @@ export default function App() {
         userName={userName}
         userId={userId}
         onLogout={handleLogout}
+        authTokens={authTokens}
       >
         {renderPage()}
       </AppLayout>

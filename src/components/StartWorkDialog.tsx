@@ -20,14 +20,17 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { Guard } from "../types";
+import type { AuthResponse, Branch, Checkpoint, Guard } from "../types";
+import { closeGuardSession, openGuardSession, uploadShiftPhoto } from "../api/sessions";
+import { dataUrlToFile } from "../utils/file";
 
 interface StartWorkDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   guard: Guard;
-  branch: any;
-  checkpoint: any;
+  branch: Branch | null;
+  checkpoint: Checkpoint | null;
+  authTokens: Pick<AuthResponse, "accessToken" | "tokenType"> | null;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -38,6 +41,7 @@ export function StartWorkDialog({
   guard,
   branch,
   checkpoint,
+  authTokens,
   onConfirm,
   onCancel,
 }: StartWorkDialogProps) {
@@ -50,6 +54,23 @@ export function StartWorkDialog({
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const allowCloseRef = useRef(false);
+
+  const getDeviceFingerprint = () => {
+    if (typeof window === "undefined") {
+      return "unknown-device";
+    }
+
+    const storageKey = "guard_device_fingerprint";
+    let fingerprint = window.localStorage.getItem(storageKey);
+
+    if (!fingerprint) {
+      const randomId = window.crypto?.randomUUID?.() ?? `device-${Date.now()}`;
+      fingerprint = randomId;
+      window.localStorage.setItem(storageKey, fingerprint);
+    }
+
+    return fingerprint;
+  };
 
   const requestClose = useCallback(() => {
     allowCloseRef.current = true;
@@ -148,25 +169,93 @@ export function StartWorkDialog({
       return;
     }
 
+    if (!authTokens?.accessToken || !authTokens?.tokenType) {
+      toast.error("Отсутствуют данные авторизации. Выполните вход снова.");
+      return;
+    }
+
+    const tokens = {
+      accessToken: authTokens.accessToken,
+      tokenType: authTokens.tokenType,
+    } as const;
+
+    const storedShiftId =
+      (typeof window !== "undefined"
+        ? window.localStorage.getItem(`guard_shift_id_${guard.id}`)
+        : null) ?? undefined;
+
+    const shiftId = guard.currentShiftId ?? storedShiftId;
+
+    if (!shiftId) {
+      toast.error("Не удалось определить смену для открытия. Обновите страницу или обратитесь в поддержку.");
+      return;
+    }
+
+    if (!guard.branchId || !guard.checkpointId) {
+      toast.error("Не хватает данных филиала или КПП для открытия смены");
+      return;
+    }
+
     setLoading(true);
+
+    let openedSessionId: string | null = null;
 
     try {
       const startTime = new Date().toISOString();
-      localStorage.setItem(`guard_shift_start_${guard.id}`, startTime);
 
-      const shiftStartData = {
-        guardId: guard.id,
-        checkpointId: guard.checkpointId,
-        photo,
-        timestamp: startTime,
-        type: "shift_start",
-      };
+      const deviceLabel =
+        typeof navigator !== "undefined" ? navigator.userAgent : "unknown-device";
 
-      const shiftRecords = JSON.parse(
-        localStorage.getItem("shift_records") || "[]"
+      const deviceKind = "BROWSER";
+      const deviceFp = getDeviceFingerprint();
+
+      const { sessionId } = await openGuardSession(
+        {
+          shiftId,
+          guardId: guard.id,
+          branchId: guard.branchId,
+          checkpointId: guard.checkpointId,
+          deviceLabel,
+          deviceKind,
+          deviceFp,
+        },
+        tokens
       );
-      shiftRecords.push(shiftStartData);
-      localStorage.setItem("shift_records", JSON.stringify(shiftRecords));
+
+      openedSessionId = sessionId;
+
+      const photoFile = dataUrlToFile(
+        photo,
+        `shift-start-${guard.id}-${Date.now()}.jpg`
+      );
+
+      await uploadShiftPhoto(
+        shiftId,
+        photoFile,
+        { kind: "START", takenAt: startTime },
+        tokens
+      );
+
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(`guard_shift_start_${guard.id}`, startTime);
+        window.localStorage.setItem(`guard_shift_session_${guard.id}`, sessionId);
+        window.localStorage.setItem(`guard_shift_id_${guard.id}`, shiftId);
+
+        const shiftRecords = JSON.parse(
+          window.localStorage.getItem("shift_records") || "[]"
+        );
+        shiftRecords.push({
+          guardId: guard.id,
+          checkpointId: guard.checkpointId,
+          photo,
+          timestamp: startTime,
+          type: "shift_start",
+        });
+        window.localStorage.setItem(
+          "shift_records",
+          JSON.stringify(shiftRecords)
+        );
+      }
 
       toast.success("Смена успешно начата!");
 
@@ -176,7 +265,19 @@ export function StartWorkDialog({
       }, 500);
     } catch (error) {
       console.error("Ошибка начала смены:", error);
-      toast.error("Ошибка при начале смены");
+      if (openedSessionId) {
+        try {
+          await closeGuardSession(openedSessionId, tokens);
+        } catch (closeError) {
+          console.error("Не удалось откатить сессию охранника", closeError);
+        }
+      }
+
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Ошибка при начале смены";
+      toast.error(message);
     } finally {
       setLoading(false);
     }

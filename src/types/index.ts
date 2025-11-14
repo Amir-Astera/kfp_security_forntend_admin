@@ -174,6 +174,7 @@ export interface Guard {
   workingDays?: string[];
   createdAt?: string;
   updatedAt?: string;
+  currentShiftId?: string;
 }
 
 export interface GuardApiItem {
