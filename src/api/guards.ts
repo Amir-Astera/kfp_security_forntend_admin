@@ -814,13 +814,24 @@ export function mapGuardFromApi(
     checkpointName?: string;
   }
 ): Guard {
+  const guardWithShift = guard as GuardApiItem & {
+    currentShiftId?: string;
+    activeShiftId?: string;
+    shiftId?: string;
+  };
+
   const shiftType = guard.shiftType?.toLowerCase();
   const normalizedShiftType = shiftType === "night" ? "night" : "day";
   const status = guard.status
     ? guard.status.toLowerCase()
     : guard.active
-    ? "active"
-    : "inactive";
+      ? "active"
+      : "inactive";
+
+  const currentShiftId =
+    guardWithShift.currentShiftId ??
+    guardWithShift.activeShiftId ??
+    guardWithShift.shiftId;
 
   const workDays = Array.isArray(guard.workingDays)
     ? guard.workingDays.map((day) => WORK_DAY_MAP[day] ?? day)
@@ -854,5 +865,6 @@ export function mapGuardFromApi(
     workingDays: guard.workingDays,
     createdAt: guard.createdAt,
     updatedAt: guard.updatedAt,
+    currentShiftId,
   };
 }

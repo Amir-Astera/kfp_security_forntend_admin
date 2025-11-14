@@ -19,19 +19,23 @@ import {
 import { toast } from "sonner";
 import { db } from "../services";
 import { Camera, RotateCw, X, CheckCircle, AlertCircle } from "lucide-react";
-import type { Guard } from "../types";
+import type { AuthResponse, Guard } from "../types";
+import { uploadShiftPhoto } from "../api/sessions";
+import { dataUrlToFile } from "../utils/file";
 
 interface ShiftHandoverDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   currentGuard: Guard;
-  onSuccess: () => void;
+  authTokens: Pick<AuthResponse, "accessToken" | "tokenType"> | null;
+  onSuccess: () => Promise<void> | void;
 }
 
 export function ShiftHandoverDialog({
   open,
   onOpenChange,
   currentGuard,
+  authTokens,
   onSuccess,
 }: ShiftHandoverDialogProps) {
   const [step, setStep] = useState<"select" | "newGuardPhoto" | "confirm">(
@@ -145,6 +149,19 @@ export function ShiftHandoverDialog({
     setStep("newGuardPhoto");
   };
 
+  const resolveShiftId = () => {
+    const guardShiftId = currentGuard.currentShiftId ?? null;
+
+    if (typeof window === "undefined") {
+      return guardShiftId;
+    }
+
+    return (
+      window.localStorage.getItem(`guard_shift_id_${currentGuard.id}`) ??
+      guardShiftId
+    );
+  };
+
   // Подтвердить передачу смены
   const confirmHandover = async () => {
     if (!selectedGuard || !newGuardPhoto) {
@@ -152,38 +169,70 @@ export function ShiftHandoverDialog({
       return;
     }
 
+    if (!authTokens?.accessToken || !authTokens?.tokenType) {
+      toast.error("Отсутствуют данные авторизации. Выполните вход снова.");
+      return;
+    }
+
+    const shiftId = resolveShiftId();
+
+    if (!shiftId) {
+      toast.error("Не удалось определить смену для завершения");
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const handoverData = {
-        previousGuardId: currentGuard.id,
-        newGuardId: selectedGuard,
-        checkpointId: currentGuard.checkpointId,
-        photo: newGuardPhoto,
-        timestamp: new Date().toISOString(),
-      };
-
-      const handovers = JSON.parse(
-        localStorage.getItem("shift_handovers") || "[]"
+      const takenAt = new Date().toISOString();
+      const photoFile = dataUrlToFile(
+        newGuardPhoto,
+        `shift-end-${currentGuard.id}-${Date.now()}.jpg`
       );
-      handovers.push(handoverData);
-      localStorage.setItem("shift_handovers", JSON.stringify(handovers));
+
+      await uploadShiftPhoto(
+        shiftId,
+        photoFile,
+        { kind: "END", takenAt },
+        authTokens
+      );
+
+      if (typeof window !== "undefined") {
+        const handoverData = {
+          previousGuardId: currentGuard.id,
+          newGuardId: selectedGuard,
+          checkpointId: currentGuard.checkpointId,
+          photo: newGuardPhoto,
+          timestamp: takenAt,
+        };
+
+        const handovers = JSON.parse(
+          window.localStorage.getItem("shift_handovers") || "[]"
+        );
+        handovers.push(handoverData);
+        window.localStorage.setItem(
+          "shift_handovers",
+          JSON.stringify(handovers)
+        );
+      }
 
       if (db.updateGuard) {
         db.updateGuard(currentGuard.id, {
-          lastActivity: new Date().toISOString(),
+          lastActivity: takenAt,
         });
       }
 
       toast.success("Смена успешно передана!");
 
-      setTimeout(() => {
-        onOpenChange(false);
-        onSuccess();
-      }, 500);
+      await Promise.resolve(onSuccess());
+      onOpenChange(false);
     } catch (error) {
       console.error("Ошибка передачи смены:", error);
-      toast.error("Ошибка при передаче смены");
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Ошибка при передаче смены";
+      toast.error(message);
     } finally {
       setLoading(false);
     }
