@@ -20,8 +20,15 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { AuthResponse, Branch, Checkpoint, Guard } from "../types";
+import type {
+  AuthResponse,
+  Branch,
+  Checkpoint,
+  Guard,
+  GuardShiftEventDetail,
+} from "../types";
 import { closeGuardSession, openGuardSession, uploadShiftPhoto } from "../api/sessions";
+import { startTodayGuardShift } from "../api/guardShifts";
 import { dataUrlToFile } from "../utils/file";
 
 interface StartWorkDialogProps {
@@ -31,7 +38,7 @@ interface StartWorkDialogProps {
   branch: Branch | null;
   checkpoint: Checkpoint | null;
   authTokens: Pick<AuthResponse, "accessToken" | "tokenType"> | null;
-  onConfirm: () => void;
+  onConfirm: (payload: { shiftId: string; startedAt?: string }) => void;
   onCancel: () => void;
 }
 
@@ -179,18 +186,6 @@ export function StartWorkDialog({
       tokenType: authTokens.tokenType,
     } as const;
 
-    const storedShiftId =
-      (typeof window !== "undefined"
-        ? window.localStorage.getItem(`guard_shift_id_${guard.id}`)
-        : null) ?? undefined;
-
-    const shiftId = guard.currentShiftId ?? storedShiftId;
-
-    if (!shiftId) {
-      toast.error("Не удалось определить смену для открытия. Обновите страницу или обратитесь в поддержку.");
-      return;
-    }
-
     if (!guard.branchId || !guard.checkpointId) {
       toast.error("Не хватает данных филиала или КПП для открытия смены");
       return;
@@ -201,7 +196,9 @@ export function StartWorkDialog({
     let openedSessionId: string | null = null;
 
     try {
-      const startTime = new Date().toISOString();
+      const startPayload = await startTodayGuardShift(tokens);
+      const shiftId = startPayload.shiftId;
+      const startTime = startPayload.startedAt ?? new Date().toISOString();
 
       const deviceLabel =
         typeof navigator !== "undefined" ? navigator.userAgent : "unknown-device";
@@ -257,11 +254,22 @@ export function StartWorkDialog({
         );
       }
 
+      if (typeof window !== "undefined") {
+        const detail: GuardShiftEventDetail = {
+          status: "ACTIVE",
+          shiftId,
+          startedAt: startTime,
+        };
+        window.dispatchEvent(
+          new CustomEvent<GuardShiftEventDetail>("guard-shift-updated", { detail })
+        );
+      }
+
       toast.success("Смена успешно начата!");
 
       setTimeout(() => {
         requestClose();
-        onConfirm();
+        onConfirm({ shiftId, startedAt: startTime });
       }, 500);
     } catch (error) {
       console.error("Ошибка начала смены:", error);

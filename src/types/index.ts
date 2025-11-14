@@ -177,6 +177,25 @@ export interface Guard {
   currentShiftId?: string;
 }
 
+// ============================================
+// СМЕНЫ ОХРАННИКОВ
+// ============================================
+
+export type GuardShiftStatus = "PLANNED" | "ACTIVE" | "DONE";
+
+export interface GuardShiftEventDetail {
+  status: GuardShiftStatus;
+  shiftId?: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+declare global {
+  interface WindowEventMap {
+    "guard-shift-updated": CustomEvent<GuardShiftEventDetail>;
+  }
+}
+
 export interface GuardApiItem {
   id: string;
   agencyId: string;

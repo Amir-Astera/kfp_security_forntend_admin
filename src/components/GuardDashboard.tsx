@@ -17,12 +17,14 @@ import {
   getGuestVisits,
   mapGuestVisitToVisit,
 } from "../api/visits";
+import { getTodayGuardShift, type TodayGuardShiftResponse } from "../api/guardShifts";
 import type {
   AuthResponse,
   Branch,
   Checkpoint,
   Guard,
   GuardDashboardCardsResponse,
+  GuardShiftEventDetail,
   Visit,
 } from "../types";
 import { toast } from "sonner@2.0.3";
@@ -51,21 +53,144 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
   const [visitsError, setVisitsError] = useState<string | null>(null);
   const [isCreatingVisit, setIsCreatingVisit] = useState(false);
   const [isCompletingVisit, setIsCompletingVisit] = useState(false);
+  const [todayShift, setTodayShift] = useState<TodayGuardShiftResponse | null>(null);
+  const [shiftLoading, setShiftLoading] = useState(false);
+  const [shiftError, setShiftError] = useState<string | null>(null);
+
+  const authHeaders = useMemo(() => {
+    if (!authTokens?.accessToken || !authTokens?.tokenType) {
+      return null;
+    }
+
+    return {
+      accessToken: authTokens.accessToken,
+      tokenType: authTokens.tokenType,
+    } as const;
+  }, [authTokens]);
+
+  const resetState = useCallback(() => {
+    setGuard(null);
+    setBranch(null);
+    setCheckpoint(null);
+    setWorkStarted(false);
+    setShowStartDialog(false);
+    setTodayShift(null);
+    setShiftError(null);
+  }, []);
+
+  const refreshShiftData = useCallback(async () => {
+    if (!guardId) {
+      setTodayShift(null);
+      setWorkStarted(false);
+      setShowStartDialog(false);
+      return;
+    }
+
+    if (!authHeaders) {
+      if (typeof window !== "undefined") {
+        const storedShiftId = window.localStorage.getItem(`guard_shift_id_${guardId}`);
+        const storedShiftStart = window.localStorage.getItem(`guard_shift_start_${guardId}`);
+
+        if (storedShiftId && storedShiftStart) {
+          setTodayShift({
+            hasShift: true,
+            shiftStatus: "ACTIVE",
+            shiftId: storedShiftId,
+            startedAt: storedShiftStart,
+          });
+          setWorkStarted(true);
+          setShowStartDialog(false);
+        } else {
+          setTodayShift(null);
+          setWorkStarted(false);
+          setShowStartDialog(false);
+        }
+      }
+      return;
+    }
+
+    setShiftLoading(true);
+    setShiftError(null);
+
+    try {
+      const data = await getTodayGuardShift(authHeaders);
+      setTodayShift(data);
+
+      if (!data.hasShift) {
+        setWorkStarted(false);
+        setShowStartDialog(false);
+
+        if (typeof window !== "undefined") {
+          window.localStorage.removeItem(`guard_shift_start_${guardId}`);
+          window.localStorage.removeItem(`guard_shift_session_${guardId}`);
+          window.localStorage.removeItem(`guard_shift_id_${guardId}`);
+        }
+        return;
+      }
+
+      if (data.shiftStatus === "ACTIVE") {
+        setWorkStarted(true);
+        setShowStartDialog(false);
+
+        if (typeof window !== "undefined") {
+          if (data.startedAt) {
+            window.localStorage.setItem(`guard_shift_start_${guardId}`, data.startedAt);
+          }
+          if (data.shiftId) {
+            window.localStorage.setItem(`guard_shift_id_${guardId}`, data.shiftId);
+          }
+        }
+      } else if (data.shiftStatus === "PLANNED") {
+        setWorkStarted(false);
+        setShowStartDialog(true);
+
+        if (typeof window !== "undefined") {
+          window.localStorage.removeItem(`guard_shift_start_${guardId}`);
+          window.localStorage.removeItem(`guard_shift_session_${guardId}`);
+          window.localStorage.removeItem(`guard_shift_id_${guardId}`);
+        }
+      } else {
+        setWorkStarted(false);
+        setShowStartDialog(false);
+
+        if (typeof window !== "undefined") {
+          window.localStorage.removeItem(`guard_shift_start_${guardId}`);
+          window.localStorage.removeItem(`guard_shift_session_${guardId}`);
+          window.localStorage.removeItem(`guard_shift_id_${guardId}`);
+        }
+      }
+    } catch (error) {
+      console.error("Не удалось получить статус смены", error);
+      const message =
+        error instanceof Error ? error.message : "Не удалось получить статус смены";
+      setShiftError(message);
+
+      if (typeof window !== "undefined") {
+        const storedShiftId = window.localStorage.getItem(`guard_shift_id_${guardId}`);
+        const storedShiftStart = window.localStorage.getItem(`guard_shift_start_${guardId}`);
+
+        if (storedShiftId && storedShiftStart) {
+          setTodayShift({
+            hasShift: true,
+            shiftStatus: "ACTIVE",
+            shiftId: storedShiftId,
+            startedAt: storedShiftStart,
+          });
+          setWorkStarted(true);
+          setShowStartDialog(false);
+        }
+      }
+    } finally {
+      setShiftLoading(false);
+    }
+  }, [authHeaders, guardId]);
 
   // Загружаем данные охранника
   useEffect(() => {
     let isMounted = true;
 
-    const resetState = () => {
-      setGuard(null);
-      setBranch(null);
-      setCheckpoint(null);
-      setWorkStarted(false);
-      setShowStartDialog(false);
-    };
-
     const loadGuardData = async () => {
-      if (!authTokens?.accessToken || !authTokens?.tokenType) {
+      if (!authHeaders) {
         setLoadError("Отсутствуют данные авторизации");
         setLoadingGuard(false);
         return;
@@ -82,10 +207,7 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
       resetState();
 
       try {
-        const tokens = {
-          accessToken: authTokens.accessToken,
-          tokenType: authTokens.tokenType,
-        } as const;
+        const tokens = authHeaders;
 
         const guardResponse = await fetchGuardByIdFromApi(guardId, tokens);
 
@@ -160,11 +282,8 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
         setBranch(branchData);
         setCheckpoint(checkpointData);
 
-        const shiftStart = localStorage.getItem(`guard_shift_start_${mappedGuard.id}`);
-        if (shiftStart) {
-          setWorkStarted(true);
-        } else {
-          setShowStartDialog(true);
+        if (isMounted) {
+          refreshShiftData();
         }
 
         setLoadError(null);
@@ -190,7 +309,75 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
     return () => {
       isMounted = false;
     };
-  }, [authTokens, guardId]);
+  }, [authHeaders, guardId, refreshShiftData, resetState]);
+
+  useEffect(() => {
+    refreshShiftData();
+  }, [refreshShiftData]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleShiftUpdated = (event: CustomEvent<GuardShiftEventDetail>) => {
+      const detail = event.detail;
+      if (!detail) {
+        return;
+      }
+
+      setTodayShift((previous) => ({
+        hasShift: true,
+        shiftStatus: detail.status,
+        shiftId: detail.shiftId ?? previous?.shiftId,
+        startedAt: detail.startedAt ?? previous?.startedAt,
+        finishedAt: detail.finishedAt ?? previous?.finishedAt,
+        branchName: previous?.branchName,
+        checkpointName: previous?.checkpointName,
+      }));
+
+      if (detail.status === "ACTIVE") {
+        setWorkStarted(true);
+        setShowStartDialog(false);
+
+        if (guardId && typeof window !== "undefined") {
+          if (detail.startedAt) {
+            window.localStorage.setItem(`guard_shift_start_${guardId}`, detail.startedAt);
+          }
+          if (detail.shiftId) {
+            window.localStorage.setItem(`guard_shift_id_${guardId}`, detail.shiftId);
+          }
+        }
+      } else if (detail.status === "DONE") {
+        setWorkStarted(false);
+        setShowStartDialog(false);
+
+        if (guardId && typeof window !== "undefined") {
+          window.localStorage.removeItem(`guard_shift_start_${guardId}`);
+          window.localStorage.removeItem(`guard_shift_session_${guardId}`);
+          window.localStorage.removeItem(`guard_shift_id_${guardId}`);
+        }
+
+        refreshShiftData();
+      } else if (detail.status === "PLANNED") {
+        setWorkStarted(false);
+        setShowStartDialog(true);
+      }
+    };
+
+    window.addEventListener(
+      "guard-shift-updated",
+      handleShiftUpdated as unknown as EventListener
+    );
+
+    return () => {
+      window.removeEventListener(
+        "guard-shift-updated",
+        handleShiftUpdated as unknown as EventListener
+      );
+    };
+  }, [guardId, refreshShiftData]);
+
 
   const refreshVisits = useCallback(async () => {
     if (!authTokens?.accessToken || !authTokens?.tokenType || !guardId) {
@@ -314,10 +501,32 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
     };
   }, [authTokens]);
 
-  const handleStartWork = () => {
-    setWorkStarted(true);
-    setShowStartDialog(false);
-  };
+  const handleStartWork = useCallback(
+    ({ shiftId, startedAt }: { shiftId: string; startedAt?: string }) => {
+      setWorkStarted(true);
+      setShowStartDialog(false);
+      setShiftError(null);
+      setTodayShift((previous) => ({
+        hasShift: true,
+        shiftStatus: "ACTIVE",
+        shiftId,
+        startedAt: startedAt ?? previous?.startedAt,
+        finishedAt: undefined,
+        branchName: previous?.branchName,
+        checkpointName: previous?.checkpointName,
+      }));
+
+      if (guardId && typeof window !== "undefined") {
+        if (startedAt) {
+          window.localStorage.setItem(`guard_shift_start_${guardId}`, startedAt);
+        }
+        window.localStorage.setItem(`guard_shift_id_${guardId}`, shiftId);
+      }
+
+      refreshShiftData();
+    },
+    [guardId, refreshShiftData]
+  );
 
   const handleShiftHandover = () => {
     // Закрываем сессию и делаем logout
@@ -501,6 +710,12 @@ export function GuardDashboard({ guardId, guardName, onLogout, authTokens }: Gua
         {cardsError && (
           <p className="text-sm text-destructive/80">
             {cardsError}. Показаны данные локальной базы.
+          </p>
+        )}
+
+        {shiftError && (
+          <p className="text-sm text-destructive/80">
+            {shiftError}. Показаны сохраненные данные смены.
           </p>
         )}
 

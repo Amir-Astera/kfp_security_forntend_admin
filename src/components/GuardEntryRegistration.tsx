@@ -80,6 +80,7 @@ export function GuardEntryRegistration({ visits, onRegisterVisit, isSubmitting }
 
   // Следим за изменением ИИН для автозаполнения
   const watchedIin = watch("iin");
+  const phoneValue = watch("phone");
 
   useEffect(() => {
     if (watchedIin && watchedIin.length === 12) {
@@ -120,21 +121,25 @@ export function GuardEntryRegistration({ visits, onRegisterVisit, isSubmitting }
   }, [watchedIin, setValue, getValues]);
 
   const formatPhoneNumber = (value: string): string => {
-    const digits = value.replace(/\\D/g, "");
+    let digits = value.replace(/\D/g, "");
 
     if (digits.length === 0) {
       return "";
     }
 
-    let normalized = digits;
-
-    if (normalized.startsWith("8")) {
-      normalized = "7" + normalized.slice(1);
-    } else if (!normalized.startsWith("7")) {
-      normalized = `7${normalized}`;
+    if (digits.startsWith("8")) {
+      digits = `7${digits.slice(1)}`;
     }
 
-    normalized = normalized.slice(0, 11);
+    if (!digits.startsWith("7")) {
+      digits = `7${digits}`;
+    }
+
+    if (digits.length === 10 && digits.startsWith("7")) {
+      digits = `7${digits}`;
+    }
+
+    let normalized = digits.slice(0, 11);
 
     const area = normalized.slice(1, Math.min(4, normalized.length));
     const first = normalized.slice(4, Math.min(7, normalized.length));
@@ -179,10 +184,12 @@ export function GuardEntryRegistration({ visits, onRegisterVisit, isSubmitting }
   const phoneRegister = register("phone", {
     required: "Телефон обязателен",
     validate: (value) => {
-      const digits = value.replace(/\\D/g, "");
+      const digits = value.replace(/\D/g, "");
       return digits.length === 11 || "Введите корректный номер";
     },
   });
+
+  const { ref: phoneRef, onBlur: phoneOnBlur, name: phoneName } = phoneRegister;
 
   // Функция поиска подсказок
   const searchSuggestions = (field: "fullName" | "iin" | "phone" | "company", value: string) => {
@@ -219,7 +226,7 @@ export function GuardEntryRegistration({ visits, onRegisterVisit, isSubmitting }
         );
         break;
       case "phone":
-        const phoneDigits = value.replace(/\\D/g, "");
+        const phoneDigits = value.replace(/\D/g, "");
         filtered = uniqueVisits.filter(v => 
           v.phone.replace(/\\D/g, "").includes(phoneDigits)
         );
@@ -500,19 +507,25 @@ export function GuardEntryRegistration({ visits, onRegisterVisit, isSubmitting }
               <Label htmlFor="phone">
                 Телефон <span className="text-destructive">*</span>
               </Label>
-                <Input
-                  id="phone"
-                  {...phoneRegister}
-                  placeholder="+7 (707) 123 45 67"
-                  onChange={(e) => {
-                    const formatted = formatPhoneNumber(e.target.value);
-                    e.target.value = formatted;
-                    phoneRegister.onChange(e);
-                    searchSuggestions("phone", formatted);
-                    setActiveField("phone");
-                  }}
-                  onFocus={() => setActiveField("phone")}
-                />
+              <Input
+                id="phone"
+                name={phoneName}
+                ref={phoneRef}
+                value={phoneValue ?? ""}
+                onBlur={phoneOnBlur}
+                placeholder="+7 (707) 123 45 67"
+                onChange={(event) => {
+                  const formatted = formatPhoneNumber(event.target.value);
+                  setValue("phone", formatted, {
+                    shouldValidate: true,
+                    shouldDirty: true,
+                    shouldTouch: true,
+                  });
+                  searchSuggestions("phone", formatted);
+                  setActiveField("phone");
+                }}
+                onFocus={() => setActiveField("phone")}
+              />
               {errors.phone && <p className="text-destructive mt-1 text-sm">{errors.phone.message}</p>}
               
               {/* Подсказки для Телефона */}
