@@ -229,6 +229,35 @@ export interface GuardListResponse {
 }
 
 // ============================================
+// ФОТО ВСТУПЛЕНИЯ НА СМЕНУ
+// ============================================
+
+export type ShiftPhotoKind = "START" | "FINISH" | string;
+
+export interface ShiftPhotoApiItem {
+  id: string;
+  shiftId: string;
+  guardId: string;
+  branchId: string;
+  checkpointId: string;
+  kind: ShiftPhotoKind;
+  takenAt: string;
+  fileId: string;
+  fileDirectory: string;
+  fileFormat: string;
+  fileUrl: string;
+  previewUrl: string;
+  createdAt: string;
+}
+
+export interface ShiftPhotoListResponse {
+  items: ShiftPhotoApiItem[];
+  page: number;
+  size: number;
+  total: number;
+}
+
+// ============================================
 // ДАШБОРД ОХРАННИКА
 // ============================================
 export interface GuardDashboardCardsResponse {
