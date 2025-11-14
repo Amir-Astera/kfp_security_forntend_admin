@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -52,9 +52,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
-import type { AuthResponse, Guard } from "../types";
+import type { AuthResponse, Guard, CreateGuardRequest, UpdateGuardRequest } from "../types";
 import { db } from "../services";
 import { toast } from "sonner@2.0.3";
+import {
+  createGuard as createGuardRequest,
+  deleteGuard as deleteGuardRequest,
+  fetchGuardsFromApi,
+  mapGuardFromApi,
+  updateGuard as updateGuardRequest,
+  type GuardsApiParams,
+} from "../api/guards";
+import { getBranchesByAgencyId } from "../api/branches";
 
 interface AgencyGuardsManagerProps {
   authTokens?: AuthResponse | null;
@@ -64,6 +73,8 @@ interface AgencyGuardsManagerProps {
 export function AgencyGuardsManager({ authTokens, agencyId }: AgencyGuardsManagerProps) {
   const [guards, setGuards] = useState<Guard[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Фильтры
   const [searchQuery, setSearchQuery] = useState("");
@@ -79,53 +90,184 @@ export function AgencyGuardsManager({ authTokens, agencyId }: AgencyGuardsManage
   // Сортировка
   const { sortField, sortDirection, handleSort, sortData } = useSorting();
 
-  // TODO: В реальном приложении получать из контекста аутентификации
-  const CURRENT_AGENCY_ID = agencyId ?? "agency-1";
+  const resolvedAgencyId = agencyId ?? authTokens?.principal?.userId ?? "";
+  const fallbackAgencyId = resolvedAgencyId || "agency-1";
+  const isAuthorized = Boolean(
+    authTokens?.accessToken && authTokens?.tokenType && resolvedAgencyId
+  );
+
+  const loadGuardsFromDb = useCallback(() => {
+    try {
+      const data = db.getGuardsByAgencyId(fallbackAgencyId);
+      setGuards(data);
+    } catch (error) {
+      console.error("Ошибка загрузки охранников из локальной базы:", error);
+      toast.error("Не удалось загрузить охранников");
+    }
+  }, [fallbackAgencyId]);
+
+  const loadBranchesFromDb = useCallback(() => {
+    try {
+      const agencyData = db.getAgencyById(fallbackAgencyId);
+      if (agencyData) {
+        const branchesData = db
+          .getBranches()
+          .filter((branch) => agencyData.branches.includes(branch.id));
+        setBranches(branchesData);
+      } else {
+        setBranches([]);
+      }
+    } catch (error) {
+      console.error("Ошибка загрузки филиалов из локальной базы:", error);
+      setBranches([]);
+    }
+  }, [fallbackAgencyId]);
+
+  const loadBranches = useCallback(async () => {
+    if (!isAuthorized) {
+      loadBranchesFromDb();
+      return;
+    }
+
+    try {
+      const data = await getBranchesByAgencyId(resolvedAgencyId, {
+        accessToken: authTokens!.accessToken,
+        tokenType: authTokens!.tokenType,
+      });
+      setBranches(data);
+    } catch (error) {
+      console.error("Ошибка загрузки филиалов:", error);
+      loadBranchesFromDb();
+    }
+  }, [authTokens, isAuthorized, loadBranchesFromDb, resolvedAgencyId]);
+
+  const loadGuards = useCallback(async () => {
+    if (!isAuthorized) {
+      setIsLoading(true);
+      loadGuardsFromDb();
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const params: GuardsApiParams = {
+        page: 0,
+        size: 50,
+        agencyId: resolvedAgencyId,
+      };
+
+      const response = await fetchGuardsFromApi(params, {
+        accessToken: authTokens!.accessToken,
+        tokenType: authTokens!.tokenType,
+      });
+
+      const mapped = Array.isArray(response.items)
+        ? response.items.map((item) => mapGuardFromApi(item))
+        : [];
+
+      setGuards(mapped);
+    } catch (error) {
+      console.error("Ошибка загрузки охранников:", error);
+      const message =
+        error instanceof Error ? error.message : "Не удалось загрузить охранников";
+      toast.error(message);
+      loadGuardsFromDb();
+    } finally {
+      setIsLoading(false);
+    }
+  }, [authTokens, isAuthorized, loadGuardsFromDb, resolvedAgencyId]);
+
+  useEffect(() => {
+    loadBranches();
+  }, [loadBranches]);
 
   useEffect(() => {
     loadGuards();
-    loadBranches();
-  }, [CURRENT_AGENCY_ID]);
+  }, [loadGuards]);
 
-  const loadGuards = () => {
-    try {
-      const data = db.getGuardsByAgencyId(CURRENT_AGENCY_ID);
-      setGuards(data);
-    } catch (error) {
-      console.error("Ошибка загрузки охранников:", error);
-      toast.error("Не удалось загрузить охранников");
-    }
-  };
+  const handleCreateOrUpdate = async (data: any) => {
+    setIsSaving(true);
 
-  const loadBranches = () => {
-    try {
-      // Получаем филиалы агентства
-      const agency = db.getAgencyById(CURRENT_AGENCY_ID);
-      if (agency) {
-        const branchesData = db.getBranches().filter(b => agency.branches.includes(b.id));
-        setBranches(branchesData);
-      }
-    } catch (error) {
-      console.error("Ошибка загрузки филиалов:", error);
-    }
-  };
+    const tokens =
+      authTokens?.accessToken && authTokens?.tokenType
+        ? { accessToken: authTokens.accessToken, tokenType: authTokens.tokenType }
+        : null;
 
-  const handleCreateOrUpdate = (data: any) => {
+    const status = (data.status ?? editingGuard?.status ?? "active") as Guard["status"];
+
     try {
       if (editingGuard) {
-        db.updateGuard(editingGuard.id, data);
+        if (tokens && resolvedAgencyId) {
+          const loginPassword = data.password || data.loginPassword;
+          const updatePayload = Object.fromEntries(
+            Object.entries({
+              fullName: data.fullName,
+              iin: data.iin,
+              birthDate: data.birthDate,
+              phone: data.phone,
+              email: data.email,
+              branchId: data.branchId,
+              checkpointId: data.checkpointId,
+              shiftType: data.shiftType,
+              shiftStart: data.shiftStart,
+              shiftEnd: data.shiftEnd,
+              workDays: data.workDays,
+              loginEmail: data.loginEmail,
+              password: data.password ? data.password : undefined,
+              loginPassword: loginPassword ? loginPassword : undefined,
+              status,
+              active: status === "active",
+              workingDays: data.workingDays,
+            }).filter(([, value]) => value !== undefined)
+          ) as UpdateGuardRequest;
+
+          await updateGuardRequest(editingGuard.id, updatePayload, tokens);
+        } else {
+          db.updateGuard(editingGuard.id, { ...data, status });
+        }
         toast.success("Охранник успешно обновлен");
       } else {
-        // Добавляем agencyId к данным
-        db.createGuard({ ...data, agencyId: CURRENT_AGENCY_ID });
+        if (tokens && resolvedAgencyId) {
+          const payload: CreateGuardRequest = {
+            fullName: data.fullName,
+            iin: data.iin,
+            birthDate: data.birthDate,
+            phone: data.phone,
+            email: data.email,
+            agencyId: resolvedAgencyId,
+            branchId: data.branchId,
+            checkpointId: data.checkpointId,
+            shiftType: data.shiftType,
+            shiftStart: data.shiftStart,
+            shiftEnd: data.shiftEnd,
+            workDays: data.workDays,
+            loginEmail: data.loginEmail,
+            password: data.password,
+            status,
+            active: status === "active",
+            loginPassword: data.password || data.loginPassword,
+            workingDays: data.workingDays,
+          };
+
+          await createGuardRequest(payload, tokens);
+        } else {
+          db.createGuard({ ...data, agencyId: fallbackAgencyId, status });
+        }
         toast.success("Охранник успешно создан");
       }
-      loadGuards();
+
+      await loadGuards();
       setIsFormOpen(false);
       setEditingGuard(null);
     } catch (error) {
       console.error("Ошибка сохранения охранника:", error);
-      toast.error("Не удалось сохранить охранника");
+      const message =
+        error instanceof Error ? error.message : "Не удалось сохранить охранника";
+      toast.error(message);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -138,30 +280,60 @@ export function AgencyGuardsManager({ authTokens, agencyId }: AgencyGuardsManage
     setDeletingGuard(guard);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!deletingGuard) return;
-    
+
     try {
-      db.deleteGuard(deletingGuard.id);
+      if (isAuthorized) {
+        await deleteGuardRequest(deletingGuard.id, {
+          accessToken: authTokens!.accessToken,
+          tokenType: authTokens!.tokenType,
+        });
+      } else {
+        db.deleteGuard(deletingGuard.id);
+      }
+
       toast.success("Охранник удален");
-      loadGuards();
+      await loadGuards();
     } catch (error) {
       console.error("Ошибка удаления охранника:", error);
-      toast.error("Не удалось удалить охранника");
+      const message =
+        error instanceof Error ? error.message : "Не удалось удалить охранника";
+      toast.error(message);
     } finally {
       setDeletingGuard(null);
     }
   };
 
-  const handleToggleStatus = (guard: Guard) => {
+  const handleToggleStatus = async (guard: Guard) => {
+    const newStatus = guard.status === "active" ? "inactive" : "active";
+
     try {
-      const newStatus = guard.status === "active" ? "inactive" : "active";
-      db.updateGuard(guard.id, { status: newStatus });
-      toast.success(`Охранник ${newStatus === "active" ? "активирован" : "деактивирован"}`);
-      loadGuards();
+      if (isAuthorized) {
+        await updateGuardRequest(
+          guard.id,
+          {
+            status: newStatus,
+            active: newStatus === "active",
+          },
+          {
+            accessToken: authTokens!.accessToken,
+            tokenType: authTokens!.tokenType,
+          }
+        );
+      } else {
+        db.updateGuard(guard.id, { status: newStatus });
+      }
+
+      toast.success(
+        `Охранник ${newStatus === "active" ? "активирован" : "деактивирован"}`
+      );
+      await loadGuards();
     } catch (error) {
       console.error("Ошибка изменения статуса:", error);
-      toast.error("Не удалось изменить статус");
+      const message =
+        error instanceof Error ? error.message : "Не удалось изменить статус";
+      toast.error(message);
     }
   };
 
@@ -328,7 +500,16 @@ export function AgencyGuardsManager({ authTokens, agencyId }: AgencyGuardsManage
               </TableRow>
             </TableHeader>
             <TableBody>
-              {!sortedGuards || sortedGuards.length === 0 ? (
+              {isLoading ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={8}
+                    className="text-center py-12 text-muted-foreground"
+                  >
+                    Загрузка охранников...
+                  </TableCell>
+                </TableRow>
+              ) : !sortedGuards || sortedGuards.length === 0 ? (
                 <TableRow>
                   <TableCell
                     colSpan={8}
@@ -445,7 +626,8 @@ export function AgencyGuardsManager({ authTokens, agencyId }: AgencyGuardsManage
         guard={editingGuard}
         onSuccess={handleCreateOrUpdate}
         authTokens={authTokens}
-        agencyId={CURRENT_AGENCY_ID}
+        agencyId={resolvedAgencyId || fallbackAgencyId}
+        loading={isSaving}
       />
 
       {/* Delete Confirmation */}

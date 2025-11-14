@@ -31,6 +31,8 @@ export interface ShiftRegistryQueryParams {
   branchId?: string;
   year?: number;
   month?: number;
+  agencyId?: string;
+  scope?: "agency" | "global";
 }
 
 export interface ShiftDayCountersResponse {
@@ -78,13 +80,26 @@ const handleErrorResponse = async (response: Response, fallbackMessage: string) 
   throw new Error(message);
 };
 
+const buildRegistryEndpoint = (
+  segment: string,
+  params: ShiftRegistryQueryParams
+): string => {
+  const useAgencyScope = params.scope === "agency" || Boolean(params.agencyId);
+  const basePath = useAgencyScope
+    ? `${API_BASE_URL}/api/v1/shifts/registry/agency`
+    : `${API_BASE_URL}/api/v1/shifts/registry`;
+
+  return `${basePath}/${segment}`;
+};
+
 export async function getWeekShiftRegistry(
   tokens: Pick<AuthResponse, "accessToken" | "tokenType">,
   params: ShiftRegistryQueryParams
 ): Promise<ShiftRegistryResponse> {
-  const { date, page = 0, size = 50, branchId } = params;
-  const queryString = buildQueryString({ date, page, size, branchId });
-  const response = await fetch(`${API_BASE_URL}/api/v1/shifts/registry/week${queryString}`, {
+  const { date, page = 0, size = 50, branchId, agencyId } = params;
+  const queryString = buildQueryString({ date, page, size, branchId, agencyId });
+  const endpoint = buildRegistryEndpoint("week", params);
+  const response = await fetch(`${endpoint}${queryString}`, {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
@@ -100,9 +115,10 @@ export async function getDayShiftRegistry(
   tokens: Pick<AuthResponse, "accessToken" | "tokenType">,
   params: ShiftRegistryQueryParams
 ): Promise<ShiftRegistryResponse> {
-  const { date, page = 0, size = 50, branchId } = params;
-  const queryString = buildQueryString({ date, page, size, branchId });
-  const response = await fetch(`${API_BASE_URL}/api/v1/shifts/registry/day${queryString}`, {
+  const { date, page = 0, size = 50, branchId, agencyId } = params;
+  const queryString = buildQueryString({ date, page, size, branchId, agencyId });
+  const endpoint = buildRegistryEndpoint("day", params);
+  const response = await fetch(`${endpoint}${queryString}`, {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
@@ -118,9 +134,10 @@ export async function getMonthShiftRegistry(
   tokens: Pick<AuthResponse, "accessToken" | "tokenType">,
   params: ShiftRegistryQueryParams
 ): Promise<ShiftRegistryResponse> {
-  const { year, month, page = 0, size = 100, branchId } = params;
-  const queryString = buildQueryString({ year, month, page, size, branchId });
-  const response = await fetch(`${API_BASE_URL}/api/v1/shifts/registry/month${queryString}`, {
+  const { year, month, page = 0, size = 100, branchId, agencyId } = params;
+  const queryString = buildQueryString({ year, month, page, size, branchId, agencyId });
+  const endpoint = buildRegistryEndpoint("month", params);
+  const response = await fetch(`${endpoint}${queryString}`, {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
@@ -136,9 +153,10 @@ export async function getDayShiftCounters(
   tokens: Pick<AuthResponse, "accessToken" | "tokenType">,
   params: ShiftRegistryQueryParams
 ): Promise<ShiftDayCountersResponse> {
-  const { date, branchId } = params;
-  const queryString = buildQueryString({ date, branchId });
-  const response = await fetch(`${API_BASE_URL}/api/v1/shifts/registry/day/counters${queryString}`, {
+  const { date, branchId, agencyId } = params;
+  const queryString = buildQueryString({ date, branchId, agencyId });
+  const endpoint = buildRegistryEndpoint("day/counters", params);
+  const response = await fetch(`${endpoint}${queryString}`, {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
