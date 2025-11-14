@@ -326,7 +326,15 @@ export function PhotoGallery({ authTokens, userRole = "superadmin" }: PhotoGalle
     selectedShift !== "all",
   ].filter(Boolean).length;
 
-  const resetFilters = () => {
+  const totalPages = useMemo(() => {
+    if (total <= 0) {
+      return 1;
+    }
+
+    return Math.max(1, Math.ceil(total / SHIFT_PHOTO_PAGE_SIZE));
+  }, [total]);
+
+  const handleResetFilters = () => {
     setSearchQuery("");
     setSelectedAgency("all");
     setSelectedBranch("all");
@@ -481,8 +489,8 @@ export function PhotoGallery({ authTokens, userRole = "superadmin" }: PhotoGalle
               </Select>
             </div>
           </div>
-        )}
-      </Card>
+        </div>
+      </div>
 
       {error && (
         <Card className="p-4 border-destructive/30 bg-destructive/10 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -515,7 +523,8 @@ export function PhotoGallery({ authTokens, userRole = "superadmin" }: PhotoGalle
       ) : filteredPhotos.length === 0 ? (
         <Card className="p-12 text-center">
           <p className="text-muted-foreground">
-            Нет фотографий, соответствующих выбранным фильтрам
+            Отсутствуют данные авторизации. Выполните вход, чтобы просмотреть
+            фото вступления на смену.
           </p>
         </Card>
       ) : (
@@ -630,19 +639,26 @@ export function PhotoGallery({ authTokens, userRole = "superadmin" }: PhotoGalle
                   <div>
                     <h3 className="text-muted-foreground mb-1">Охранник</h3>
                     <div className="flex items-center gap-2">
-                      <User className="w-4 h-4 text-primary" />
-                      <span className="text-foreground">{selectedPhoto.guardName}</span>
+                      <User className="h-4 w-4 text-primary" />
+                      <span className="text-foreground">
+                        {selectedPhoto.guardName}
+                      </span>
+                    </div>
+                    <div className="mt-2 text-sm text-muted-foreground">
+                      ID охранника: {selectedPhoto.guardId}
                     </div>
                   </div>
 
                   <div>
-                    <h3 className="text-muted-foreground mb-1">Время вступления</h3>
+                    <h3 className="mb-1 text-muted-foreground">Время вступления</h3>
                     <div className="flex items-center gap-2">
-                      <CalendarIcon className="w-4 h-4 text-primary" />
+                      <CalendarIcon className="h-4 w-4 text-primary" />
                       <span className="text-foreground">
-                        {format(selectedPhoto.timestamp, "dd MMMM yyyy, HH:mm", {
-                          locale: ru,
-                        })}
+                        {selectedPhoto.takenAtDate
+                          ? format(selectedPhoto.takenAtDate, "dd MMMM yyyy, HH:mm", {
+                              locale: ru,
+                            })
+                          : "Дата не указана"}
                       </span>
                     </div>
                   </div>
