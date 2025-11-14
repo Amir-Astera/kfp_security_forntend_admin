@@ -33,6 +33,7 @@ import { ShiftHandoverDialog } from "./ShiftHandoverDialog";
 import type { AuthResponse, Guard, GuardShiftEventDetail } from "../types";
 import { closeGuardSessions } from "../api/sessions";
 import { getTodayGuardShift, finishTodayGuardShift } from "../api/guardShifts";
+import { getGuardById as fetchGuardById } from "../api/guards";
 import { toast } from "sonner";
 
 type UserRole = "superadmin" | "agency" | "guard";
@@ -156,43 +157,69 @@ export function AppLayout({
   useEffect(() => {
     if (userRole !== "guard" || !userId) {
       setGuardData(null);
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadGuardData = async () => {
+      const localGuard = db.getGuardById ? db.getGuardById(userId) : null;
+
+      if (isMounted) {
+        setGuardData(localGuard);
+      }
+
+      if (!localGuard) {
+        try {
+          const remoteGuard = await fetchGuardById(userId);
+          if (isMounted && remoteGuard) {
+            setGuardData(remoteGuard);
+          }
+        } catch (error) {
+          console.error("Не удалось загрузить данные охранника", error);
+        }
+      }
+    };
+
+    loadGuardData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [userId, userRole]);
+
+  // Обновляем информацию о смене из локального хранилища
+  useEffect(() => {
+    if (userRole !== "guard" || !userId) {
       setGuardInfo(null);
       return;
     }
 
-    const guard = db.getGuardById ? db.getGuardById(userId) : null;
-    setGuardData(guard);
+    if (typeof window === "undefined") {
+      setGuardInfo(null);
+      return;
+    }
 
-    const checkpointData =
-      guard && db.getCheckpointById ? db.getCheckpointById(guard.checkpointId) : null;
+    if (!guardData) {
+      setGuardInfo(null);
+      return;
+    }
 
-    const checkpointLabel = checkpointData?.name ?? guard?.checkpointName ?? "—";
-    const shiftRange = guard
-      ? (() => {
-          const start = guard.shiftStart?.trim() ?? "";
-          const end = guard.shiftEnd?.trim() ?? "";
-          if (start && end) {
-            return `${start} - ${end}`;
-          }
-          return start || end || "—";
-        })()
-      : "—";
+    const shiftStart = window.localStorage.getItem(`guard_shift_start_${userId}`);
 
-    if (typeof window !== "undefined") {
-      const shiftStart = window.localStorage.getItem(`guard_shift_start_${userId}`);
-      if (shiftStart && guard) {
-        setGuardInfo({
-          shift: shiftRange,
-          checkpoint: checkpointLabel,
-        });
-      } else {
-        setGuardInfo(null);
-      }
+    if (shiftStart) {
+      setGuardInfo({
+        shift: getShiftRange(),
+        checkpoint: getCheckpointName(),
+      });
     } else {
       setGuardInfo(null);
     }
+  }, [getCheckpointName, getShiftRange, guardData, userId, userRole]);
 
-    if (!authHeaders) {
+  // Обновляем статус смены через API
+  useEffect(() => {
+    if (!authHeaders || userRole !== "guard" || !userId) {
       return;
     }
 
@@ -205,12 +232,17 @@ export function AppLayout({
         }
 
         if (shift.hasShift && shift.shiftStatus === "ACTIVE") {
-          const checkpointName =
-            checkpointLabel !== "—" ? checkpointLabel : shift.checkpointName ?? "—";
+          const checkpointFromDb =
+            guardData?.checkpointId && db.getCheckpointById
+              ? db.getCheckpointById(guardData.checkpointId)
+              : null;
+
+          const checkpointLabel =
+            checkpointFromDb?.name ?? guardData?.checkpointName ?? shift.checkpointName ?? "—";
 
           setGuardInfo({
-            shift: guard ? shiftRange : "Активная смена",
-            checkpoint: checkpointName,
+            shift: guardData ? getShiftRange() : "Активная смена",
+            checkpoint: checkpointLabel,
           });
         } else {
           setGuardInfo(null);
@@ -223,7 +255,7 @@ export function AppLayout({
     return () => {
       isActive = false;
     };
-  }, [authHeaders, userId, userRole]);
+  }, [authHeaders, getShiftRange, guardData, userId, userRole]);
 
   useEffect(() => {
     if (typeof window === "undefined" || userRole !== "guard") {

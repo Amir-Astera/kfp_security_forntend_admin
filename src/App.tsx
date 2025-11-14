@@ -45,50 +45,31 @@ export default function App() {
   useEffect(() => {
     const initDatabase = async () => {
       try {
-        console.log('🚀 Инициализация базы данных...');
         await db.initialize();
         setDbError(null);
-        console.log('✅ База данных готова к использованию');
-        
+
         // Для тестирования в консоли браузера
         if (typeof window !== 'undefined') {
           (window as any).db = db;
           (window as any).resetDatabase = async () => {
-            console.log('🔄 Сброс базы данных...');
             db.clearDatabase();
             await db.initialize();
-            console.log('✅ База данных сброшена. Перезагрузите страницу.');
             window.location.reload();
           };
           (window as any).showGuards = () => {
-            console.log('📋 Список всех охранников с учетными данными:');
-            const guards = db.getGuards ? db.getGuards() : [];
-            guards.forEach((guard, index) => {
-              console.log(`\n${index + 1}. ${guard.fullName}`);
-              console.log(`   Email: ${guard.loginEmail}`);
-              console.log(`   Пароль: ${guard.password || 'НЕ УСТАНОВЛЕН'}`);
-              console.log(`   Статус: ${guard.status}`);
-            });
-            console.log(`\n✅ Всего охранников: ${guards.length}`);
+            return db.getGuards ? db.getGuards() : [];
           };
           (window as any).fixPasswords = () => {
-            console.log('🔧 Исправление паролей...');
             const guards = db.getGuards ? db.getGuards() : [];
             let fixed = 0;
             guards.forEach((guard) => {
               if (!guard.password || guard.password === 'null') {
-                console.log(`⚙️ Установка пароля для ${guard.fullName} (${guard.loginEmail})`);
                 db.updateGuard(guard.id, { password: 'password123' });
                 fixed++;
               }
             });
-            console.log(`✅ Исправлено паролей: ${fixed}`);
-            console.log('💡 Теперь используйте window.showGuards() для проверки');
+            return fixed;
           };
-          console.log('💡 Совет: Используйте window.db для тестирования в консоли');
-          console.log('💡 Для сброса базы данных введите: window.resetDatabase()');
-          console.log('💡 Для просмотра списка охранников: window.showGuards()');
-          console.log('💡 Для исправления NULL паролей: window.fixPasswords()');
         }
       } catch (error) {
         console.error('❌ Ошибка инициализации базы данных:', error);
